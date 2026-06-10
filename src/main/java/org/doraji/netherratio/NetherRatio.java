@@ -38,7 +38,12 @@ public final class NetherRatio extends JavaPlugin {
 
     /**
      * Called when the plugin is disabled.
-     * Performs cleanup operations and saves any pending configuration changes.
+     * Performs cleanup operations.
+     *
+     * <p>The configuration is intentionally not saved here: all configuration
+     * changes are persisted immediately when they are made, and saving the
+     * in-memory configuration on shutdown would overwrite any manual edits
+     * made to config.yml while the server was running.</p>
      */
     @Override
     public void onDisable() {
@@ -46,7 +51,6 @@ public final class NetherRatio extends JavaPlugin {
         if (messagesManager != null) {
             getLogger().info(messagesManager.getMessage("plugin.disabled"));
         }
-        saveConfig();
     }
 
     /**
