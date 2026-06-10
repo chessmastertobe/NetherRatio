@@ -2,6 +2,7 @@ package org.doraji.netherratio.events;
 
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
+import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -114,8 +115,8 @@ public class PortalTravelListener implements Listener {
                 return null;
             }
             scale = cm.getRatioForWorld(fromWorld.getName());
-            newX = from.getX() / scale + cm.getOffsetXForWorld(fromWorld.getName());
-            newZ = from.getZ() / scale + cm.getOffsetZForWorld(fromWorld.getName());
+            newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
         } else if (fromWorld.getEnvironment() == World.Environment.NETHER) {
             // When traveling from Nether to Overworld, multiply by ratio
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
@@ -127,8 +128,8 @@ public class PortalTravelListener implements Listener {
                 return null;
             }
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
-            newX = (from.getX() - cm.getOffsetXForNetherWorld(fromWorld.getName())) * scale;
-            newZ = (from.getZ() - cm.getOffsetZForNetherWorld(fromWorld.getName())) * scale;
+            newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         } else {
             // End or other dimensions - no portal conversion
             return null;

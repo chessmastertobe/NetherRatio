@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.doraji.netherratio.util.CoordinateMath;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -333,8 +334,8 @@ public class ConfigManager {
      * @return Array with [clampedX, clampedZ]
      */
     public double[] clampCoordinates(double x, double z) {
-        double clampedX = Math.max(minX, Math.min(maxX, x));
-        double clampedZ = Math.max(minZ, Math.min(maxZ, z));
+        double clampedX = CoordinateMath.clamp(x, minX, maxX);
+        double clampedZ = CoordinateMath.clamp(z, minZ, maxZ);
         return new double[]{clampedX, clampedZ};
     }
     
