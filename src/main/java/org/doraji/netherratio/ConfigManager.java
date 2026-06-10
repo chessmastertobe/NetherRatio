@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @author xDxRAx (Original Author)
  * @author NetherRatio Team
  * @author ZyanKLee (Maintainer)
- * @version 2.4.1
+ * @version 2.5.0
  */
 public class ConfigManager {
 

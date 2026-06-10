@@ -9,7 +9,7 @@ package org.doraji.netherratio.util;
  *
  * @author NetherRatio Team
  * @author ZyanKLee (Maintainer)
- * @version 2.4.1
+ * @version 2.5.0
  */
 public final class CoordinateMath {
 
