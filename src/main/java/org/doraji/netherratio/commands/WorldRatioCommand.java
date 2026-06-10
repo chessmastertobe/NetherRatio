@@ -5,6 +5,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.doraji.netherratio.NetherRatio;
+import org.doraji.netherratio.util.CoordinateMath;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -161,7 +162,6 @@ public class WorldRatioCommand implements CommandExecutor {
      * @return true if the command was successful
      */
     private boolean handleReloadCommand(CommandSender sender) {
-        plugin.reloadConfig();
         plugin.getConfigManager().reload();
         plugin.getMessagesManager().reload();
         sender.sendMessage(plugin.getMessagesManager().getMessage("command.config-reloaded"));
@@ -239,8 +239,8 @@ public class WorldRatioCommand implements CommandExecutor {
             }
             ratio = plugin.getConfigManager().getRatioForWorld(worldName);
             targetWorldName = netherWorld.getName();
-            targetX = x / ratio;
-            targetZ = z / ratio;
+            targetX = CoordinateMath.toNether(x, ratio, plugin.getConfigManager().getOffsetXForWorld(worldName));
+            targetZ = CoordinateMath.toNether(z, ratio, plugin.getConfigManager().getOffsetZForWorld(worldName));
             java.util.Map<String, String> replacements = new java.util.HashMap<>();
             replacements.put("x1", String.format("%.1f", x));
             replacements.put("z1", String.format("%.1f", z));
@@ -258,8 +258,8 @@ public class WorldRatioCommand implements CommandExecutor {
             }
             ratio = plugin.getConfigManager().getRatioForNetherWorld(worldName);
             targetWorldName = overworldWorld.getName();
-            targetX = x * ratio;
-            targetZ = z * ratio;
+            targetX = CoordinateMath.toOverworld(x, ratio, plugin.getConfigManager().getOffsetXForNetherWorld(worldName));
+            targetZ = CoordinateMath.toOverworld(z, ratio, plugin.getConfigManager().getOffsetZForNetherWorld(worldName));
             java.util.Map<String, String> replacements = new java.util.HashMap<>();
             replacements.put("x1", String.format("%.1f", x));
             replacements.put("z1", String.format("%.1f", z));
