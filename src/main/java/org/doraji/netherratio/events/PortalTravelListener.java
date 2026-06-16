@@ -24,7 +24,7 @@ public class PortalTravelListener implements Listener {
         this.cm = plugin.getConfigManager();
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
         if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
             return;
@@ -32,8 +32,9 @@ public class PortalTravelListener implements Listener {
 
         Location newTo = calculatePortalDestination(event.getFrom());
         if (newTo != null) {
-            event.setCancelled(true);
-            event.setTo(newTo);   // Let the event handle it instead of manual teleport
+            event.setTo(newTo);           // Set the destination
+            event.setCancelled(false);    // Make sure it's not cancelled
+            // Folia sometimes needs this to respect the new location
         }
     }
 
