@@ -6,7 +6,6 @@ import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -26,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Final safe version loaded");
+        plugin.getLogger().info("§a[NetherRatio] Listener loaded - Final safe version");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -37,7 +36,7 @@ public class PortalTravelListener implements Listener {
 
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
-        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 10000) return; // 10s cooldown
+        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 10000) return;
 
         if (to.getBlockX() == event.getFrom().getBlockX() &&
             to.getBlockY() == event.getFrom().getBlockY() &&
@@ -47,21 +46,24 @@ public class PortalTravelListener implements Listener {
 
         plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
 
-        Location newTo = calculateSafeDestination(to);
+        Location newTo = calculateDestination(to);
         if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio] Teleporting to " + formatLoc(newTo));
+            plugin.getLogger().info("§a[NetherRatio] Scheduling teleport to " + formatLoc(newTo));
 
             lastTeleport.put(uuid, now);
 
+            // Schedule on destination region's scheduler
             plugin.getServer().getRegionScheduler().execute(plugin, newTo, () -> {
                 player.teleportAsync(newTo).thenAccept(success -> {
-                    if (success) plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed");
+                    if (success) {
+                        plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed");
+                    }
                 });
             });
         }
     }
 
-    private Location calculateSafeDestination(Location from) {
+    private Location calculateDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -85,33 +87,14 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
-        // Clamp to bounds if enabled
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
         }
 
-        // Start very high
-        Location base = new Location(toWorld, newX + 0.5, 110, newZ + 0.5, from.getYaw(), from.getPitch());
-        return findSafeY(base);
-    }
-
-    private Location findSafeY(Location loc) {
-        World world = loc.getWorld();
-        int x = loc.getBlockX();
-        int z = loc.getBlockZ();
-
-        for (int y = 110; y >= 40; y--) {
-            Block feet = world.getBlockAt(x, y, z);
-            Block head = world.getBlockAt(x, y + 1, z);
-            if (feet.getType().isAir() && head.getType().isAir()) {
-                return new Location(world, x + 0.5, y + 0.2, z + 0.5, loc.getYaw(), loc.getPitch());
-            }
-        }
-
-        // Ultimate fallback - spawn at Y=80 and hope for the best
-        return new Location(world, loc.getX(), 80, loc.getZ(), loc.getYaw(), loc.getPitch());
+        // Start high - no block checking here
+        return new Location(toWorld, newX + 0.5, 100, newZ + 0.5, from.getYaw(), from.getPitch());
     }
 
     private String formatLoc(Location loc) {
