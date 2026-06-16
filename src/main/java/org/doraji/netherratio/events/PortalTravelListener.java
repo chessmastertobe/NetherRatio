@@ -20,12 +20,12 @@ public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
     private final ConfigManager cm;
-    private final Map<UUID, Long> teleportCooldown = new HashMap<>();
+    private final Map<UUID, Long> lastTeleport = new HashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener active - Cooldown + Loop Protection");
+        plugin.getLogger().info("§a[NetherRatio] Listener active - Strong loop protection");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -34,7 +34,15 @@ public class PortalTravelListener implements Listener {
         Location to = event.getTo();
         if (to == null) return;
 
-        // Basic movement check
+        UUID uuid = player.getUniqueId();
+        long now = System.currentTimeMillis();
+
+        // 8 second cooldown after any custom teleport
+        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 8000) {
+            return;
+        }
+
+        // Only check when actually moving to a new block
         if (to.getBlockX() == event.getFrom().getBlockX() &&
             to.getBlockY() == event.getFrom().getBlockY() &&
             to.getBlockZ() == event.getFrom().getBlockZ()) {
@@ -43,21 +51,13 @@ public class PortalTravelListener implements Listener {
 
         if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        UUID uuid = player.getUniqueId();
-        long now = System.currentTimeMillis();
-
-        // Cooldown to prevent loops (5 seconds)
-        if (teleportCooldown.containsKey(uuid) && now - teleportCooldown.get(uuid) < 5000) {
-            return;
-        }
-
         plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
 
         Location newTo = calculateDestination(to);
         if (newTo != null) {
             plugin.getLogger().info("§a[NetherRatio] Teleporting to " + formatLoc(newTo));
 
-            teleportCooldown.put(uuid, now);
+            lastTeleport.put(uuid, now);
 
             plugin.getServer().getRegionScheduler().execute(plugin, newTo, () -> {
                 player.teleportAsync(newTo).thenAccept(success -> {
