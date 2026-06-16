@@ -3,154 +3,101 @@ package org.doraji.netherratio.events;
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.entity.EntityPortalEvent;
-import org.bukkit.event.player.PlayerPortalEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 
-/**
- * Listens for portal travel events and applies custom coordinate ratio conversion.
- * 
- * <p>This listener intercepts both player and entity portal travel events,
- * calculates the destination coordinates based on the configured ratio,
- * and modifies the portal destination accordingly.</p>
- * 
- * @author xDxRAx (Original Author)
- * @author NetherRatio Team
- * @author ZyanKLee (Maintainer)
- * @version 2.5.0
- */
 public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
-    /**
-     * Constructs a new PortalTravelListener.
-     * 
-     * @param plugin The main plugin instance
-     */
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
+        plugin.getLogger().info("§a[NetherRatio] Listener active - Safe landing mode");
     }
 
-    /**
-     * Handles player portal travel events.
-     * 
-     * <p>Only processes nether portal events, ignoring end portals and other teleportation causes.</p>
-     * 
-     * @param event The PlayerPortalEvent
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onPlayerPortal(PlayerPortalEvent event) {
-        if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerMove(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        Location to = event.getTo();
+        if (to == null) return;
+
+        if (to.getBlockX() == event.getFrom().getBlockX() &&
+            to.getBlockY() == event.getFrom().getBlockY() &&
+            to.getBlockZ() == event.getFrom().getBlockZ()) {
             return;
         }
 
-        Location newTo = calculatePortalDestination(event.getFrom());
+        if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
+
+        plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
+
+        Location newTo = calculateSafeDestination(to);
         if (newTo != null) {
-            event.setTo(newTo);
-        } else {
-            // World mapping not found, let vanilla behavior handle it or cancel if preferred
-            // Currently allows vanilla portal mechanics to take over
-            plugin.getLogger().fine("Portal destination could not be calculated, using vanilla behavior");
+            plugin.getLogger().info("§a[NetherRatio] Teleporting to safe spot: " + formatLoc(newTo));
+            player.teleportAsync(newTo);
         }
     }
 
-    /**
-     * Handles entity portal travel events.
-     * 
-     * <p>Applies coordinate ratio conversion to non-player entities traveling through portals,
-     * such as minecarts, items, or other mobs.</p>
-     * 
-     * @param event The EntityPortalEvent
-     */
-    @EventHandler(priority = EventPriority.HIGH)
-    public void onEntityPortal(EntityPortalEvent event) {
-        Location newTo = calculatePortalDestination(event.getFrom());
-        if (newTo != null) {
-            event.setTo(newTo);
-        } else {
-            // World mapping not found, let vanilla behavior handle it
-            plugin.getLogger().fine("Entity portal destination could not be calculated, using vanilla behavior");
-        }
-    }
-
-    /**
-     * Calculates the portal destination with custom ratio applied.
-     * 
-     * <p>Determines the destination world based on configured world pairs,
-     * then applies the coordinate ratio to calculate the exact destination coordinates.</p>
-     * 
-     * @param from The origin location
-     * @return The calculated destination location, or null if destination cannot be determined
-     */
-    private Location calculatePortalDestination(Location from) {
+    private Location calculateSafeDestination(Location from) {
         World fromWorld = from.getWorld();
-        if (fromWorld == null) {
-            plugin.getLogger().warning("Cannot calculate portal destination: source world is null");
-            return null;
-        }
+        if (fromWorld == null) return null;
 
         World toWorld;
-        double newX;
-        double newZ;
+        double newX, newZ;
         double scale;
 
         if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
-            // When traveling from Overworld to Nether, divide by ratio
-            // Example: 8:1 ratio means 800 in overworld = 100 in nether
             toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
-            if (toWorld == null) {
-                // Log warning when world is not found
-                plugin.getLogger().warning(
-                    plugin.getMessagesManager().getMessage("config.world-not-found-overworld", "world", fromWorld.getName())
-                );
-                return null;
-            }
+            if (toWorld == null) return null;
             scale = cm.getRatioForWorld(fromWorld.getName());
             newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
             newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
         } else if (fromWorld.getEnvironment() == World.Environment.NETHER) {
-            // When traveling from Nether to Overworld, multiply by ratio
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
-            if (toWorld == null) {
-                // Log warning when world is not found
-                plugin.getLogger().warning(
-                    plugin.getMessagesManager().getMessage("config.world-not-found-nether", "world", fromWorld.getName())
-                );
-                return null;
-            }
+            if (toWorld == null) return null;
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         } else {
-            // End or other dimensions - no portal conversion
             return null;
         }
 
-        // Check coordinate bounds if enabled
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
-            double clampedX = clamped[0];
-            double clampedZ = clamped[1];
-            
-            // Log the clamping
-            plugin.getLogger().info(String.format(
-                "Clamped portal destination from (%.2f, %.2f) to (%.2f, %.2f) in %s",
-                newX, newZ, clampedX, clampedZ, toWorld.getName()
-            ));
-            
-            newX = clampedX;
-            newZ = clampedZ;
+            newX = clamped[0];
+            newZ = clamped[1];
         }
 
-        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
+        Location base = new Location(toWorld, newX, 64, newZ, from.getYaw(), from.getPitch());
+        return findSafeY(base);
+    }
+
+    private Location findSafeY(Location loc) {
+        World world = loc.getWorld();
+        int x = loc.getBlockX();
+        int z = loc.getBlockZ();
+
+        for (int y = 80; y >= 40; y--) {
+            Block feet = world.getBlockAt(x, y, z);
+            Block head = world.getBlockAt(x, y + 1, z);
+            if (feet.getType().isAir() && head.getType().isAir()) {
+                return new Location(world, x + 0.5, y, z + 0.5, loc.getYaw(), loc.getPitch());
+            }
+        }
+        return loc; // fallback
+    }
+
+    private String formatLoc(Location loc) {
+        if (loc == null || loc.getWorld() == null) return "null";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
     }
 }
