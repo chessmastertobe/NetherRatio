@@ -6,6 +6,7 @@ import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -25,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener active - Strong loop protection");
+        plugin.getLogger().info("§a[NetherRatio] Final safe version loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -36,24 +37,17 @@ public class PortalTravelListener implements Listener {
 
         UUID uuid = player.getUniqueId();
         long now = System.currentTimeMillis();
+        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 10000) return; // 10s cooldown
 
-        // 8 second cooldown after any custom teleport
-        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 8000) {
-            return;
-        }
-
-        // Only check when actually moving to a new block
         if (to.getBlockX() == event.getFrom().getBlockX() &&
             to.getBlockY() == event.getFrom().getBlockY() &&
-            to.getBlockZ() == event.getFrom().getBlockZ()) {
-            return;
-        }
+            to.getBlockZ() == event.getFrom().getBlockZ()) return;
 
         if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
         plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
 
-        Location newTo = calculateDestination(to);
+        Location newTo = calculateSafeDestination(to);
         if (newTo != null) {
             plugin.getLogger().info("§a[NetherRatio] Teleporting to " + formatLoc(newTo));
 
@@ -61,15 +55,13 @@ public class PortalTravelListener implements Listener {
 
             plugin.getServer().getRegionScheduler().execute(plugin, newTo, () -> {
                 player.teleportAsync(newTo).thenAccept(success -> {
-                    if (success) {
-                        plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed");
-                    }
+                    if (success) plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed");
                 });
             });
         }
     }
 
-    private Location calculateDestination(Location from) {
+    private Location calculateSafeDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -93,13 +85,33 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
+        // Clamp to bounds if enabled
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
         }
 
-        return new Location(toWorld, newX + 0.5, 70, newZ + 0.5, from.getYaw(), from.getPitch());
+        // Start very high
+        Location base = new Location(toWorld, newX + 0.5, 110, newZ + 0.5, from.getYaw(), from.getPitch());
+        return findSafeY(base);
+    }
+
+    private Location findSafeY(Location loc) {
+        World world = loc.getWorld();
+        int x = loc.getBlockX();
+        int z = loc.getBlockZ();
+
+        for (int y = 110; y >= 40; y--) {
+            Block feet = world.getBlockAt(x, y, z);
+            Block head = world.getBlockAt(x, y + 1, z);
+            if (feet.getType().isAir() && head.getType().isAir()) {
+                return new Location(world, x + 0.5, y + 0.2, z + 0.5, loc.getYaw(), loc.getPitch());
+            }
+        }
+
+        // Ultimate fallback - spawn at Y=80 and hope for the best
+        return new Location(world, loc.getX(), 80, loc.getZ(), loc.getYaw(), loc.getPitch());
     }
 
     private String formatLoc(Location loc) {
