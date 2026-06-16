@@ -23,8 +23,10 @@ jobs:
       - name: Build with Maven
         run: mvn -B clean package --file pom.xml
 
-      - name: Upload JAR
+      - name: Upload JAR (direct)
         uses: actions/upload-artifact@v4
         with:
-          name: NetherRatio-Folia-Fixed
+          name: NetherRatio-Folia-Fixed.jar
           path: target/*.jar
+          if-no-files-found: error
+          compression-level: 0
