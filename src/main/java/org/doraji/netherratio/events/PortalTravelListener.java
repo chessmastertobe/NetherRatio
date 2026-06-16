@@ -11,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.Bukkit;
 
 public class PortalTravelListener implements Listener {
 
@@ -20,35 +21,46 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener registered - Using PlayerMoveEvent (Folia compatible)");
+        plugin.getLogger().info("§a[NetherRatio] Listener registered - PlayerMoveEvent Folia mode");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         Location to = event.getTo();
+        if (to == null) return;
 
-        // Only check when player actually moved to a new block
-        if (to == null || to.getBlockX() == event.getFrom().getBlockX() && 
-            to.getBlockY() == event.getFrom().getBlockY() && 
+        // Only check when actually moving to a new block
+        if (to.getBlockX() == event.getFrom().getBlockX() &&
+            to.getBlockY() == event.getFrom().getBlockY() &&
             to.getBlockZ() == event.getFrom().getBlockZ()) {
             return;
         }
 
         if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        plugin.getLogger().info("§e[NetherRatio DEBUG] Player " + player.getName() + " entered Nether Portal at " + formatLoc(to));
+        plugin.getLogger().info("§e[NetherRatio DEBUG] Player " + player.getName() + " in Nether Portal!");
 
         Location newTo = calculatePortalDestination(to);
         if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio DEBUG] Teleporting to custom location: " + formatLoc(newTo));
-            player.teleportAsync(newTo);
+            plugin.getLogger().info("§a[NetherRatio DEBUG] Calculated destination: " + formatLoc(newTo));
+
+            // Folia-safe way: schedule on the destination region's scheduler
+            Bukkit.getRegionScheduler().execute(plugin, newTo, () -> {
+                player.teleportAsync(newTo).thenAccept(success -> {
+                    if (success) {
+                        plugin.getLogger().info("§a[NetherRatio DEBUG] ✅ Teleport successful");
+                    } else {
+                        plugin.getLogger().warning("§c[NetherRatio DEBUG] ❌ Teleport failed");
+                    }
+                });
+            });
         }
     }
 
     private String formatLoc(Location loc) {
         if (loc == null || loc.getWorld() == null) return "null";
-        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockZ() + ")";
     }
 
     private Location calculatePortalDestination(Location from) {
@@ -75,7 +87,6 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
-        // Coordinate bounds
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
