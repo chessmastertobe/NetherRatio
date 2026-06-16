@@ -6,7 +6,6 @@ import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -21,7 +20,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener active - Safe landing mode");
+        plugin.getLogger().info("§a[NetherRatio] Listener active - Region-safe mode");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -40,14 +39,22 @@ public class PortalTravelListener implements Listener {
 
         plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
 
-        Location newTo = calculateSafeDestination(to);
+        Location newTo = calculateDestination(to);
         if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio] Teleporting to safe spot: " + formatLoc(newTo));
-            player.teleportAsync(newTo);
+            plugin.getLogger().info("§a[NetherRatio] Scheduling safe teleport to " + formatLoc(newTo));
+
+            // Schedule on the destination world's region scheduler
+            plugin.getServer().getRegionScheduler().execute(plugin, newTo, () -> {
+                player.teleportAsync(newTo).thenAccept(success -> {
+                    if (success) {
+                        plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed safely");
+                    }
+                });
+            });
         }
     }
 
-    private Location calculateSafeDestination(Location from) {
+    private Location calculateDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -71,33 +78,14 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
-        // Apply bounds
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
         }
 
-        Location base = new Location(toWorld, newX, 64, newZ, from.getYaw(), from.getPitch());
-        return findSafeY(base);
-    }
-
-    private Location findSafeY(Location loc) {
-        World world = loc.getWorld();
-        int x = loc.getBlockX();
-        int z = loc.getBlockZ();
-
-        // Try from Y=80 down to Y=40, then up if needed
-        for (int y = 80; y >= 40; y--) {
-            Block feet = world.getBlockAt(x, y, z);
-            Block head = world.getBlockAt(x, y + 1, z);
-            if (feet.getType().isAir() && head.getType().isAir()) {
-                return new Location(world, x + 0.5, y, z + 0.5, loc.getYaw(), loc.getPitch());
-            }
-        }
-
-        // Fallback: spawn at original Y
-        return loc;
+        // Start at a reasonable height - we'll let vanilla handle basic safe spawn
+        return new Location(toWorld, newX + 0.5, 70, newZ + 0.5, from.getYaw(), from.getPitch());
     }
 
     private String formatLoc(Location loc) {
