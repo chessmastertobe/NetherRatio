@@ -13,7 +13,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPortalEvent;
 import org.bukkit.event.player.PlayerPortalEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
-import org.bukkit.scheduler.BukkitTask;
 
 public class PortalTravelListener implements Listener {
 
@@ -33,15 +32,12 @@ public class PortalTravelListener implements Listener {
 
         Location newTo = calculatePortalDestination(event.getFrom());
         if (newTo != null) {
-            // Folia-safe way: schedule the teleport on the destination region's scheduler
-            Player player = event.getPlayer();
-            event.setCancelled(true);  // Cancel vanilla, we'll handle it
+            event.setCancelled(true);   // Cancel vanilla handling
 
-            // Use teleportAsync for cross-dimension safety
-            player.teleportAsync(newTo).thenAccept(success -> {
-                if (!success) {
-                    plugin.getLogger().warning("Async teleport failed for " + player.getName());
-                }
+            // Folia-safe teleport (scheduled on correct region thread)
+            Player player = event.getPlayer();
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                player.teleport(newTo);
             });
         }
     }
@@ -51,16 +47,67 @@ public class PortalTravelListener implements Listener {
         Location newTo = calculatePortalDestination(event.getFrom());
         if (newTo != null) {
             event.setCancelled(true);
-            // For entities we still use setTo on the event (safer than async for non-players)
-            // but schedule the actual teleport if needed
             Bukkit.getScheduler().runTask(plugin, () -> {
                 event.getEntity().teleport(newTo);
             });
         }
     }
 
+    /**
+     * Calculates the portal destination with custom ratio applied.
+     */
     private Location calculatePortalDestination(Location from) {
-        // ... (keep your existing calculatePortalDestination method exactly as-is)
-        // (the whole method from line 94 to 155 in the original)
+        World fromWorld = from.getWorld();
+        if (fromWorld == null) {
+            plugin.getLogger().warning("Cannot calculate portal destination: source world is null");
+            return null;
+        }
+
+        World toWorld;
+        double newX;
+        double newZ;
+        double scale;
+
+        if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
+            // Overworld → Nether
+            toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
+            if (toWorld == null) {
+                plugin.getLogger().warning(
+                    plugin.getMessagesManager().getMessage("config.world-not-found-overworld", "world", fromWorld.getName())
+                );
+                return null;
+            }
+            scale = cm.getRatioForWorld(fromWorld.getName());
+            newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
+        } else if (fromWorld.getEnvironment() == World.Environment.NETHER) {
+            // Nether → Overworld
+            toWorld = cm.getLinkedOverworld(fromWorld.getName());
+            if (toWorld == null) {
+                plugin.getLogger().warning(
+                    plugin.getMessagesManager().getMessage("config.world-not-found-nether", "world", fromWorld.getName())
+                );
+                return null;
+            }
+            scale = cm.getRatioForNetherWorld(fromWorld.getName());
+            newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
+        } else {
+            return null; // End or other dimensions
+        }
+
+        // Apply coordinate bounds if enabled
+        if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
+            double[] clamped = cm.clampCoordinates(newX, newZ);
+            newX = clamped[0];
+            newZ = clamped[1];
+            
+            plugin.getLogger().info(String.format(
+                "Clamped portal destination from (%.2f, %.2f) to (%.2f, %.2f) in %s",
+                newX, newZ, clamped[0], clamped[1], toWorld.getName()
+            ));
+        }
+
+        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
     }
 }
