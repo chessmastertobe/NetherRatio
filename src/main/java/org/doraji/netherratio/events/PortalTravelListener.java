@@ -22,86 +22,102 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
+        plugin.getLogger().info("[NetherRatio] PortalTravelListener registered - DEBUG MODE ENABLED");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
+        Player player = event.getPlayer();
+        Location from = event.getFrom();
+
+        plugin.getLogger().info("[NetherRatio DEBUG] === PlayerPortalEvent START ===");
+        plugin.getLogger().info("[NetherRatio DEBUG] Player: " + player.getName() + " | Cause: " + event.getCause());
+        plugin.getLogger().info("[NetherRatio DEBUG] From: " + formatLoc(from));
+
         if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
+            plugin.getLogger().info("[NetherRatio DEBUG] Ignored - Not a NETHER_PORTAL");
             return;
         }
 
-        Location newTo = calculatePortalDestination(event.getFrom());
+        Location newTo = calculatePortalDestination(from);
         if (newTo != null) {
-            event.setTo(newTo);           // Set the destination
-            event.setCancelled(false);    // Make sure it's not cancelled
-            // Folia sometimes needs this to respect the new location
+            plugin.getLogger().info("[NetherRatio DEBUG] Custom destination calculated: " + formatLoc(newTo));
+
+            event.setTo(newTo);
+            event.setCancelled(false);
+
+            plugin.getLogger().info("[NetherRatio DEBUG] setTo() + setCancelled(false) applied - hoping Folia respects it");
+        } else {
+            plugin.getLogger().warning("[NetherRatio DEBUG] calculatePortalDestination returned null!");
         }
+
+        plugin.getLogger().info("[NetherRatio DEBUG] === PlayerPortalEvent END ===");
     }
 
-    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onEntityPortal(EntityPortalEvent event) {
+        plugin.getLogger().info("[NetherRatio DEBUG] EntityPortalEvent for " + event.getEntity().getType() 
+                + " | From: " + formatLoc(event.getFrom()));
+
         Location newTo = calculatePortalDestination(event.getFrom());
         if (newTo != null) {
-            event.setCancelled(true);
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                event.getEntity().teleport(newTo);
-            });
+            event.setTo(newTo);
+            event.setCancelled(false);
+            plugin.getLogger().info("[NetherRatio DEBUG] Entity destination set to: " + formatLoc(newTo));
         }
     }
 
-    /**
-     * Calculates the portal destination with custom ratio applied.
-     */
+    private String formatLoc(Location loc) {
+        if (loc == null) return "null";
+        return String.format("%s (%.2f, %.2f, %.2f)", 
+                loc.getWorld() != null ? loc.getWorld().getName() : "null", 
+                loc.getX(), loc.getY(), loc.getZ());
+    }
+
     private Location calculatePortalDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) {
-            plugin.getLogger().warning("Cannot calculate portal destination: source world is null");
+            plugin.getLogger().warning("[NetherRatio DEBUG] Source world is null");
             return null;
         }
 
         World toWorld;
-        double newX;
-        double newZ;
+        double newX, newZ;
         double scale;
 
         if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
             // Overworld → Nether
             toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
             if (toWorld == null) {
-                plugin.getLogger().warning(
-                    plugin.getMessagesManager().getMessage("config.world-not-found-overworld", "world", fromWorld.getName())
-                );
+                plugin.getLogger().warning("[NetherRatio DEBUG] No linked Nether world found for " + fromWorld.getName());
                 return null;
             }
             scale = cm.getRatioForWorld(fromWorld.getName());
             newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
             newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
+            plugin.getLogger().info("[NetherRatio DEBUG] OW→Nether | Ratio: " + scale + " | New coords: " + newX + ", " + newZ);
         } else if (fromWorld.getEnvironment() == World.Environment.NETHER) {
             // Nether → Overworld
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
             if (toWorld == null) {
-                plugin.getLogger().warning(
-                    plugin.getMessagesManager().getMessage("config.world-not-found-nether", "world", fromWorld.getName())
-                );
+                plugin.getLogger().warning("[NetherRatio DEBUG] No linked Overworld found for " + fromWorld.getName());
                 return null;
             }
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
+            plugin.getLogger().info("[NetherRatio DEBUG] Nether→OW | Ratio: " + scale + " | New coords: " + newX + ", " + newZ);
         } else {
-            return null; // End or other dimensions
+            plugin.getLogger().info("[NetherRatio DEBUG] Not Nether/Overworld dimension");
+            return null;
         }
 
-        // Apply coordinate bounds if enabled
+        // Coordinate bounds
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
-            
-            plugin.getLogger().info(String.format(
-                "Clamped portal destination from (%.2f, %.2f) to (%.2f, %.2f) in %s",
-                newX, newZ, clamped[0], clamped[1], toWorld.getName()
-            ));
+            plugin.getLogger().info("[NetherRatio DEBUG] Clamped coordinates to: " + newX + ", " + newZ);
         }
 
         return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
