@@ -4,62 +4,35 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerMoveEvent;
-
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
+import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
     private final ConfigManager cm;
-    private final Map<UUID, Long> lastTeleport = new HashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener loaded - Final safe version");
+        plugin.getLogger().info("§a[NetherRatio] Listener - Vanilla portal creation mode");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        Location to = event.getTo();
-        if (to == null) return;
+    public void onPlayerPortal(PlayerPortalEvent event) {
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) return;
 
-        UUID uuid = player.getUniqueId();
-        long now = System.currentTimeMillis();
-        if (lastTeleport.containsKey(uuid) && now - lastTeleport.get(uuid) < 10000) return;
+        plugin.getLogger().info("§e[NetherRatio] PlayerPortalEvent caught for " + event.getPlayer().getName());
 
-        if (to.getBlockX() == event.getFrom().getBlockX() &&
-            to.getBlockY() == event.getFrom().getBlockY() &&
-            to.getBlockZ() == event.getFrom().getBlockZ()) return;
-
-        if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
-
-        plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
-
-        Location newTo = calculateDestination(to);
+        Location newTo = calculateDestination(event.getFrom());
         if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio] Scheduling teleport to " + formatLoc(newTo));
-
-            lastTeleport.put(uuid, now);
-
-            // Schedule on destination region's scheduler
-            plugin.getServer().getRegionScheduler().execute(plugin, newTo, () -> {
-                player.teleportAsync(newTo).thenAccept(success -> {
-                    if (success) {
-                        plugin.getLogger().info("§a[NetherRatio] ✅ Teleport completed");
-                    }
-                });
-            });
+            plugin.getLogger().info("§a[NetherRatio] Overriding destination to " + formatLoc(newTo));
+            event.setTo(newTo);
+            event.setCancelled(false);   // Let vanilla create the portal frame
         }
     }
 
@@ -93,8 +66,7 @@ public class PortalTravelListener implements Listener {
             newZ = clamped[1];
         }
 
-        // Start high - no block checking here
-        return new Location(toWorld, newX + 0.5, 100, newZ + 0.5, from.getYaw(), from.getPitch());
+        return new Location(toWorld, newX + 0.5, 70, newZ + 0.5, from.getYaw(), from.getPitch());
     }
 
     private String formatLoc(Location loc) {
