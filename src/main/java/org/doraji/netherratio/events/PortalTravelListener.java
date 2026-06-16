@@ -6,12 +6,12 @@ import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.Bukkit;
 
 public class PortalTravelListener implements Listener {
 
@@ -21,7 +21,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener registered - PlayerMoveEvent Folia mode");
+        plugin.getLogger().info("§a[NetherRatio] Listener active - Safe landing mode");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -30,7 +30,6 @@ public class PortalTravelListener implements Listener {
         Location to = event.getTo();
         if (to == null) return;
 
-        // Only check when actually moving to a new block
         if (to.getBlockX() == event.getFrom().getBlockX() &&
             to.getBlockY() == event.getFrom().getBlockY() &&
             to.getBlockZ() == event.getFrom().getBlockZ()) {
@@ -39,31 +38,16 @@ public class PortalTravelListener implements Listener {
 
         if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        plugin.getLogger().info("§e[NetherRatio DEBUG] Player " + player.getName() + " in Nether Portal!");
+        plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
 
-        Location newTo = calculatePortalDestination(to);
+        Location newTo = calculateSafeDestination(to);
         if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio DEBUG] Calculated destination: " + formatLoc(newTo));
-
-            // Folia-safe way: schedule on the destination region's scheduler
-            Bukkit.getRegionScheduler().execute(plugin, newTo, () -> {
-                player.teleportAsync(newTo).thenAccept(success -> {
-                    if (success) {
-                        plugin.getLogger().info("§a[NetherRatio DEBUG] ✅ Teleport successful");
-                    } else {
-                        plugin.getLogger().warning("§c[NetherRatio DEBUG] ❌ Teleport failed");
-                    }
-                });
-            });
+            plugin.getLogger().info("§a[NetherRatio] Teleporting to safe spot: " + formatLoc(newTo));
+            player.teleportAsync(newTo);
         }
     }
 
-    private String formatLoc(Location loc) {
-        if (loc == null || loc.getWorld() == null) return "null";
-        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockZ() + ")";
-    }
-
-    private Location calculatePortalDestination(Location from) {
+    private Location calculateSafeDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -87,12 +71,37 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
+        // Apply bounds
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
         }
 
-        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
+        Location base = new Location(toWorld, newX, 64, newZ, from.getYaw(), from.getPitch());
+        return findSafeY(base);
+    }
+
+    private Location findSafeY(Location loc) {
+        World world = loc.getWorld();
+        int x = loc.getBlockX();
+        int z = loc.getBlockZ();
+
+        // Try from Y=80 down to Y=40, then up if needed
+        for (int y = 80; y >= 40; y--) {
+            Block feet = world.getBlockAt(x, y, z);
+            Block head = world.getBlockAt(x, y + 1, z);
+            if (feet.getType().isAir() && head.getType().isAir()) {
+                return new Location(world, x + 0.5, y, z + 0.5, loc.getYaw(), loc.getPitch());
+            }
+        }
+
+        // Fallback: spawn at original Y
+        return loc;
+    }
+
+    private String formatLoc(Location loc) {
+        if (loc == null || loc.getWorld() == null) return "null";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
     }
 }
