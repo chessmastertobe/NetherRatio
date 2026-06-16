@@ -32,13 +32,8 @@ public class PortalTravelListener implements Listener {
 
         Location newTo = calculatePortalDestination(event.getFrom());
         if (newTo != null) {
-            event.setCancelled(true);   // Cancel vanilla handling
-
-            // Folia-safe teleport (scheduled on correct region thread)
-            Player player = event.getPlayer();
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                player.teleport(newTo);
-            });
+            event.setCancelled(true);
+            event.setTo(newTo);   // Let the event handle it instead of manual teleport
         }
     }
 
