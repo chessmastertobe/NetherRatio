@@ -3,7 +3,6 @@ package org.doraji.netherratio.events;
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -12,7 +11,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityInsideBlockEvent;
-import org.bukkit.event.player.PlayerTeleportEvent;
 
 public class PortalTravelListener implements Listener {
 
@@ -22,7 +20,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] PortalTravelListener registered - Using EntityInsideBlockEvent (Folia mode)");
+        plugin.getLogger().info("[NetherRatio] PortalTravelListener registered - Folia EntityInsideBlock mode");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -30,20 +28,22 @@ public class PortalTravelListener implements Listener {
         if (!(event.getEntity() instanceof Player player)) return;
         if (event.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        plugin.getLogger().info("[NetherRatio DEBUG] Player " + player.getName() + " inside NETHER_PORTAL block!");
+        plugin.getLogger().info("[NetherRatio DEBUG] Player " + player.getName() + " inside Nether Portal block!");
 
         Location from = player.getLocation();
         Location newTo = calculatePortalDestination(from);
 
         if (newTo != null) {
-            plugin.getLogger().info("[NetherRatio DEBUG] Teleporting to custom location: " + formatLoc(newTo));
+            plugin.getLogger().info("[NetherRatio DEBUG] Teleporting to custom coords: " + formatLoc(newTo));
             player.teleportAsync(newTo).thenAccept(success -> {
                 if (success) {
-                    plugin.getLogger().info("[NetherRatio DEBUG] Async teleport successful");
+                    plugin.getLogger().info("[NetherRatio DEBUG] ✅ Teleport successful");
                 } else {
-                    plugin.getLogger().warning("[NetherRatio DEBUG] Async teleport failed");
+                    plugin.getLogger().warning("[NetherRatio DEBUG] ❌ Teleport failed");
                 }
             });
+        } else {
+            plugin.getLogger().warning("[NetherRatio DEBUG] Failed to calculate destination");
         }
     }
 
@@ -53,7 +53,6 @@ public class PortalTravelListener implements Listener {
     }
 
     private Location calculatePortalDestination(Location from) {
-        // Same logic as before - paste your full calculatePortalDestination here if needed
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -77,6 +76,7 @@ public class PortalTravelListener implements Listener {
             return null;
         }
 
+        // Apply coordinate bounds
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
