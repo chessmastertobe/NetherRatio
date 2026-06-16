@@ -20,12 +20,12 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
-      - name: Build with Maven
-        run: mvn -B clean package --file pom.xml
+      - name: Build with Maven (with debug)
+        run: mvn -B clean package --file pom.xml -e -X | tail -n 100
 
-      - name: Upload JAR
+      - name: Upload JAR (if successful)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: NetherRatio-Folia-Fixed
           path: target/*.jar
-          if-no-files-found: error
