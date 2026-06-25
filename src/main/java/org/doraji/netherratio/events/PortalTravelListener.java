@@ -26,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Polished Version - Centered Spawn + Sounds");
+        plugin.getLogger().info("[NetherRatio] Vanilla Feel Version - Portal Sound Only");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -65,8 +65,8 @@ public class PortalTravelListener implements Listener {
     private void doTeleportWithEffects(Player player, Location target, Location fallback) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                player.playSound(target, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
-                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.6f, 1.0f);
+                // Only vanilla portal sound
+                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                 player.setNoDamageTicks(160);
                 player.setFallDistance(0);
             } else {
@@ -75,6 +75,7 @@ public class PortalTravelListener implements Listener {
         });
     }
 
+    // ==================== Helper Methods ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
