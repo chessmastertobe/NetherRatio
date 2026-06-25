@@ -4,7 +4,9 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -26,7 +28,6 @@ public class PortalTravelListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPlayerPortal(PlayerPortalEvent event) {
         plugin.getLogger().info("[NetherRatio Debug] Portal event triggered for " + event.getPlayer().getName());
-        plugin.getLogger().info("[NetherRatio Debug] Cause: " + event.getCause());
 
         if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
             plugin.getLogger().info("[NetherRatio Debug] Not a nether portal, ignoring.");
@@ -37,7 +38,6 @@ public class PortalTravelListener implements Listener {
         Location from = event.getFrom();
 
         plugin.getLogger().info("[NetherRatio Debug] From world: " + from.getWorld().getName());
-        plugin.getLogger().info("[NetherRatio Debug] From coords: " + from.getBlockX() + ", " + from.getBlockY() + ", " + from.getBlockZ());
 
         Location destination = calculateDestination(from);
 
@@ -47,32 +47,23 @@ public class PortalTravelListener implements Listener {
         }
 
         plugin.getLogger().info("[NetherRatio Debug] Calculated destination world: " + destination.getWorld().getName());
-        plugin.getLogger().info("[NetherRatio Debug] Calculated destination: " + destination.getBlockX() + ", " + destination.getBlockY() + ", " + destination.getBlockZ());
 
         Location safeDestination = findSafeLocation(destination);
-        plugin.getLogger().info("[NetherRatio Debug] Safe destination: " + safeDestination.getBlockX() + ", " + safeDestination.getBlockY() + ", " + safeDestination.getBlockZ());
-
         ensurePortalExists(safeDestination);
+
         event.setTo(safeDestination);
     }
 
     private Location calculateDestination(Location from) {
         World fromWorld = from.getWorld();
-        if (fromWorld == null) {
-            plugin.getLogger().warning("[NetherRatio Debug] fromWorld is null");
-            return null;
-        }
+        if (fromWorld == null) return null;
 
         World toWorld;
         double newX, newZ;
         double scale;
 
-        plugin.getLogger().info("[NetherRatio Debug] Environment: " + fromWorld.getEnvironment());
-
         if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
             toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
-            plugin.getLogger().info("[NetherRatio Debug] Linked Nether world: " + (toWorld != null ? toWorld.getName() : "NULL"));
-
             if (toWorld == null) return null;
 
             scale = cm.getRatioForWorld(fromWorld.getName());
@@ -83,8 +74,6 @@ public class PortalTravelListener implements Listener {
 
         } else if (fromWorld.getEnvironment() == World.Environment.NETHER) {
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
-            plugin.getLogger().info("[NetherRatio Debug] Linked Overworld world: " + (toWorld != null ? toWorld.getName() : "NULL"));
-
             if (toWorld == null) return null;
 
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
@@ -94,12 +83,10 @@ public class PortalTravelListener implements Listener {
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
 
         } else {
-            plugin.getLogger().info("[NetherRatio Debug] Not Overworld or Nether - ignoring");
             return null;
         }
 
         if (cm.areBoundsEnabled() && !cm.areCoordinatesWithinBounds(newX, newZ)) {
-            plugin.getLogger().info("[NetherRatio Debug] Coordinates out of bounds - clamping");
             double[] clamped = cm.clampCoordinates(newX, newZ);
             newX = clamped[0];
             newZ = clamped[1];
@@ -109,7 +96,6 @@ public class PortalTravelListener implements Listener {
     }
 
     private Location findSafeLocation(Location target) {
-        // (same as previous version)
         World world = target.getWorld();
         if (world == null) return target;
 
@@ -132,7 +118,6 @@ public class PortalTravelListener implements Listener {
     }
 
     private void ensurePortalExists(Location location) {
-        // (same basic portal creation logic as before)
         World world = location.getWorld();
         if (world == null) return;
 
@@ -172,6 +157,6 @@ public class PortalTravelListener implements Listener {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
-        plugin.getLogger().info("[NetherRatio Debug] Basic portal created at " + x + ", " + y + ", " + z);
+        plugin.getLogger().info("[NetherRatio Debug] Basic portal created");
     }
 }
