@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v14 - Smart Portal Spawn + Max Logging");
+        plugin.getLogger().info("[NetherRatio] Debug v15 - Fixed Portal Spawn + Safety Check");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -52,18 +52,32 @@ public class PortalTravelListener implements Listener {
             Location target = findNearestPortal(safeDest, 8);
 
             Location spawnLoc;
+
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                // Smart spawn: middle of the portal
-                spawnLoc = target.clone().add(0.5, 1.5, 0.5);
+                spawnLoc = target.clone();
+                spawnLoc.setY(target.getY() + 1.0); // Place player properly inside the portal
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.5, 1.5, 0.5);
+                    spawnLoc = safeDest.clone();
+                    spawnLoc.setY(safeDest.getY() + 1.0); // Place inside newly created portal
                     plugin.getLogger().info("[Portal] Created new portal - spawning at: " + formatLoc(spawnLoc));
                 } else {
                     spawnLoc = originalPortal;
                     plugin.getLogger().warning("[Portal] No safe spot - falling back");
+                }
+            }
+
+            // === FINAL SAFETY CHECK ===
+            if (!isSafeSpot(spawnLoc.getWorld(), spawnLoc.getBlockX(), spawnLoc.getBlockY(), spawnLoc.getBlockZ())) {
+                Location tryHigher = spawnLoc.clone().add(0, 1, 0);
+                if (isSafeSpot(tryHigher.getWorld(), tryHigher.getBlockX(), tryHigher.getBlockY(), tryHigher.getBlockZ())) {
+                    spawnLoc = tryHigher;
+                    plugin.getLogger().info("[Portal] Adjusted spawn 1 block higher for safety");
+                } else {
+                    spawnLoc = originalPortal;
+                    plugin.getLogger().warning("[Portal] Spawn location unsafe - falling back to original");
                 }
             }
 
@@ -88,9 +102,9 @@ public class PortalTravelListener implements Listener {
 
             if (success) {
                 player.setNoDamageTicks(200);
-                player.setFallDistance(0);
+                player.setFallDistance(0f);
             } else if (attemptsLeft > 0) {
-                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
+                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
             } else {
                 player.teleportAsync(fallback);
