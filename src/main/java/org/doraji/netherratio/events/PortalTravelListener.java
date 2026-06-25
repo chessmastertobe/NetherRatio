@@ -29,7 +29,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia + Strong Anti-Loop (Full File)");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Fixed Portal Stacking");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -37,7 +37,6 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // Strong anti-loop protection (4 seconds)
         long now = System.currentTimeMillis();
         if (lastPortalUse.containsKey(uuid)) {
             if (now - lastPortalUse.get(uuid) < 4000) {
@@ -69,17 +68,23 @@ public class PortalTravelListener implements Listener {
             }
 
             attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 50, safeLoc -> {
-                Location finalSpawn;
-
                 if (safeLoc != null) {
-                    createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                    finalSpawn = safeLoc.clone().add(0.5, 0.85, 0.5);
+                    // Schedule portal creation on the correct region thread
+                    Bukkit.getRegionScheduler().execute(plugin, safeLoc.getWorld(),
+                        safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, () -> {
+                            createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                            Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
+                            doTeleport(player, spawn);
+                        });
                 } else {
-                    finalSpawn = dest.clone().add(0.5, 40, 0.5);
-                    createBasicPortal(dest.getWorld(), dest.getBlockX(), (int)finalSpawn.getY(), dest.getBlockZ());
+                    // Fallback - still send player
+                    Location fallback = dest.clone().add(0.5, 40, 0.5);
+                    Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(),
+                        dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
+                            createBasicPortal(dest.getWorld(), dest.getBlockX(), (int)fallback.getY(), dest.getBlockZ());
+                            doTeleport(player, fallback);
+                        });
                 }
-
-                doTeleport(player, finalSpawn);
             });
         });
     }
