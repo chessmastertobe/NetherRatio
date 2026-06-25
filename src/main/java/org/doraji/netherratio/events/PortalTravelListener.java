@@ -29,7 +29,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia + Vanilla Search Radii");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Better Exit Detection");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -37,15 +37,21 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
+        // Cooldown check
         long now = System.currentTimeMillis();
         if (lastPortalUse.containsKey(uuid)) {
-            if (now - lastPortalUse.get(uuid) < 4000) {
+            if (now - lastPortalUse.get(uuid) < 5000) { // 5 second cooldown
                 return;
             }
         }
 
         Location to = event.getTo();
-        if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
+        if (to == null) return;
+
+        // Only trigger if the player is ACTUALLY standing in a portal block
+        if (to.getBlock().getType() != Material.NETHER_PORTAL) {
+            return;
+        }
 
         lastPortalUse.put(uuid, now);
 
@@ -57,7 +63,6 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // Use vanilla-style search radius based on destination dimension
         int searchRadius = (dest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 128 : 16;
 
         Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
@@ -154,7 +159,6 @@ public class PortalTravelListener implements Listener {
         World world = center.getWorld();
         if (world == null) return null;
 
-        // Search full height like vanilla
         for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
             for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
                 for (int y = world.getMinHeight(); y < world.getMaxHeight(); y++) {
@@ -168,7 +172,6 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createProperPortal(World world, int x, int y, int z) {
-        // Clear space
         for (int dx = -2; dx <= 3; dx++) {
             for (int dy = -1; dy <= 6; dy++) {
                 for (int dz = -1; dz <= 2; dz++) {
@@ -180,11 +183,9 @@ public class PortalTravelListener implements Listener {
             }
         }
 
-        // Build proper portal frame
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
-
                 if (dy == 0 || dy == 4) {
                     block.setType(Material.OBSIDIAN);
                 } else {
@@ -193,7 +194,6 @@ public class PortalTravelListener implements Listener {
             }
         }
 
-        // Side pillars
         for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
