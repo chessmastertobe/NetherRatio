@@ -23,61 +23,79 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio Test] Cancel + Custom Portal Creation Test Loaded");
+        plugin.getLogger().info("[NetherRatio Test] MAXIMUM DEBUG - Cancel + Custom Portal Test Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPortalCreate(PortalCreateEvent event) {
-        if (event.getReason() != PortalCreateEvent.CreateReason.NETHER_PAIR) return;
-
         plugin.getLogger().info("========================================");
-        plugin.getLogger().info("[PortalCreate] EVENT FIRED - ATTEMPTING INTERVENTION");
+        plugin.getLogger().info("[PortalCreate] EVENT FIRED");
         plugin.getLogger().info("[PortalCreate] Thread: " + Thread.currentThread().getName());
+        plugin.getLogger().info("[PortalCreate] Reason: " + event.getReason());
         plugin.getLogger().info("[PortalCreate] World: " + event.getWorld().getName());
+        plugin.getLogger().info("[PortalCreate] Number of blocks affected: " + event.getBlocks().size());
+
+        if (event.getReason() != PortalCreateEvent.CreateReason.NETHER_PAIR) {
+            plugin.getLogger().info("[PortalCreate] Not NETHER_PAIR reason - ignoring");
+            plugin.getLogger().info("========================================");
+            return;
+        }
 
         // Cancel the normal creation
         event.setCancelled(true);
         plugin.getLogger().info("[PortalCreate] >>> EVENT CANCELLED <<<");
 
-        // Find a player who is currently in a portal (crude but works for testing)
-        Player triggeringPlayer = null;
+        // Try to find the player who triggered this
+        Player player = null;
         for (Player p : event.getWorld().getPlayers()) {
             if (p.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
-                triggeringPlayer = p;
+                player = p;
                 break;
             }
         }
 
-        if (triggeringPlayer == null) {
-            plugin.getLogger().warning("[PortalCreate] Could not find triggering player");
+        if (player == null) {
+            plugin.getLogger().warning("[PortalCreate] Could not find player in portal block");
+            plugin.getLogger().info("========================================");
             return;
         }
 
-        plugin.getLogger().info("[PortalCreate] Triggering player: " + triggeringPlayer.getName());
+        plugin.getLogger().info("[PortalCreate] Triggering player: " + player.getName());
+        plugin.getLogger().info("[PortalCreate] Player location: " + formatLoc(player.getLocation()));
 
-        // Calculate custom destination using 2:1 ratio
-        Location from = triggeringPlayer.getLocation();
+        // Calculate custom destination
+        Location from = player.getLocation();
         Location customDest = calculateCustomDestination(from);
 
         if (customDest == null) {
-            plugin.getLogger().warning("[PortalCreate] Could not calculate custom destination");
+            plugin.getLogger().warning("[PortalCreate] Failed to calculate custom destination");
+            plugin.getLogger().info("========================================");
             return;
         }
 
-        // Find safe Y
+        plugin.getLogger().info("[PortalCreate] Calculated custom destination: " + formatLoc(customDest));
+
+        // Find safe landing spot
         Location safeDest = findSafeLocation(customDest);
-        plugin.getLogger().info("[PortalCreate] Creating custom portal at: " + formatLoc(safeDest));
+        plugin.getLogger().info("[PortalCreate] Safe destination chosen: " + formatLoc(safeDest));
 
-        // Create basic portal at custom location
+        // Create custom portal
+        plugin.getLogger().info("[PortalCreate] Creating custom portal...");
         createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
+        plugin.getLogger().info("[PortalCreate] Custom portal creation complete");
 
-        plugin.getLogger().info("[PortalCreate] Custom portal created. Waiting to see where player appears...");
+        plugin.getLogger().info("[PortalCreate] >>> TEST COMPLETE - Observing where player appears <<<");
         plugin.getLogger().info("========================================");
     }
 
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
-        if (fromWorld == null) return null;
+        if (fromWorld == null) {
+            plugin.getLogger().warning("[Calc] fromWorld is null");
+            return null;
+        }
+
+        plugin.getLogger().info("[Calc] From world environment: " + fromWorld.getEnvironment());
 
         World toWorld;
         double newX, newZ;
@@ -85,19 +103,27 @@ public class PortalTravelListener implements Listener {
 
         if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
             toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
-            if (toWorld == null) return null;
+            if (toWorld == null) {
+                plugin.getLogger().warning("[Calc] No linked nether world found");
+                return null;
+            }
             scale = cm.getRatioForWorld(fromWorld.getName());
+            plugin.getLogger().info("[Calc] Using ratio (Overworld→Nether): " + scale);
             newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
             newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
         } else {
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
-            if (toWorld == null) return null;
+            if (toWorld == null) {
+                plugin.getLogger().warning("[Calc] No linked overworld found");
+                return null;
+            }
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
+            plugin.getLogger().info("[Calc] Using ratio (Nether→Overworld): " + scale);
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         }
 
-        return new Location(toWorld, newX, from.getY(), newZ);
+        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
     }
 
     private Location findSafeLocation(Location target) {
@@ -107,11 +133,12 @@ public class PortalTravelListener implements Listener {
         int x = target.getBlockX();
         int z = target.getBlockZ();
 
-        for (int y = Math.min(target.getBlockY() + 10, 120); y >= Math.max(target.getBlockY() - 10, 30); y--) {
+        for (int y = Math.min(target.getBlockY() + 12, 120); y >= Math.max(target.getBlockY() - 12, 30); y--) {
             if (isSafeSpot(world, x, y, z)) {
-                return new Location(world, x + 0.5, y, z + 0.5);
+                return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
             }
         }
+        plugin.getLogger().info("[SafeY] Could not find perfect safe spot, using original Y");
         return target;
     }
 
@@ -123,31 +150,35 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createBasicPortal(World world, int x, int y, int z) {
-        // Simple obsidian frame + portal blocks
+        plugin.getLogger().info("[CreatePortal] Creating portal at " + x + "," + y + "," + z);
+
+        // Obsidian frame
         for (int dx = -1; dx <= 2; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
-                if (dy == 0 || dy == 4 || dx == -1 || dx == 2) {
-                    if (block.getType().isAir()) {
-                        block.setType(Material.OBSIDIAN);
-                    }
+                if ((dy == 0 || dy == 4 || dx == -1 || dx == 2) && block.getType().isAir()) {
+                    block.setType(Material.OBSIDIAN);
                 }
             }
         }
+
+        // Portal blocks
         for (int dy = 1; dy <= 3; dy++) {
             for (int dx = 0; dx <= 1; dx++) {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
+
+        plugin.getLogger().info("[CreatePortal] Portal creation finished");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onMove(PlayerMoveEvent event) {
-        // Basic move logging near portals (for context)
         if (event.getTo() != null && event.getTo().getBlock().getType() == Material.NETHER_PORTAL) {
             long now = System.currentTimeMillis();
             if (now - lastMoveLog > 400) {
-                plugin.getLogger().info("[Move] " + event.getPlayer().getName() + " in portal at " + formatLoc(event.getTo()));
+                plugin.getLogger().info("[Move] " + event.getPlayer().getName() + 
+                    " standing in portal at " + formatLoc(event.getTo()));
                 lastMoveLog = now;
             }
         }
