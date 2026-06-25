@@ -29,7 +29,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia + Better Exit Detection");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Reliable Portal Creation");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -37,21 +37,15 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // Cooldown check
         long now = System.currentTimeMillis();
         if (lastPortalUse.containsKey(uuid)) {
-            if (now - lastPortalUse.get(uuid) < 5000) { // 5 second cooldown
+            if (now - lastPortalUse.get(uuid) < 5000) {
                 return;
             }
         }
 
         Location to = event.getTo();
-        if (to == null) return;
-
-        // Only trigger if the player is ACTUALLY standing in a portal block
-        if (to.getBlock().getType() != Material.NETHER_PORTAL) {
-            return;
-        }
+        if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
         lastPortalUse.put(uuid, now);
 
@@ -79,7 +73,7 @@ public class PortalTravelListener implements Listener {
                 if (safeLoc != null) {
                     Bukkit.getRegionScheduler().execute(plugin, safeLoc.getWorld(),
                         safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, () -> {
-                            createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                            createFullLitPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                             Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
                             doTeleport(player, spawn);
                         });
@@ -87,7 +81,7 @@ public class PortalTravelListener implements Listener {
                     Location fallback = dest.clone().add(0.5, 50, 0.5);
                     Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(),
                         dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
-                            createProperPortal(dest.getWorld(), dest.getBlockX(), (int)fallback.getY(), dest.getBlockZ());
+                            createFullLitPortal(dest.getWorld(), dest.getBlockX(), (int)fallback.getY(), dest.getBlockZ());
                             doTeleport(player, fallback);
                         });
                 }
@@ -171,32 +165,43 @@ public class PortalTravelListener implements Listener {
         return null;
     }
 
-    private void createProperPortal(World world, int x, int y, int z) {
+    /**
+     * Creates a complete, lit Nether portal with proper clearing.
+     */
+    private void createFullLitPortal(World world, int x, int y, int z) {
+        // Clear a generous area first
         for (int dx = -2; dx <= 3; dx++) {
-            for (int dy = -1; dy <= 6; dy++) {
+            for (int dy = -1; dy <= 7; dy++) {
                 for (int dz = -1; dz <= 2; dz++) {
-                    Block block = world.getBlockAt(x + dx, y + dy, z + dz);
-                    if (!block.getType().isAir()) {
-                        block.setType(Material.AIR);
-                    }
+                    world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
                 }
             }
         }
 
+        // Build obsidian frame (2 wide x 5 high)
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
+
                 if (dy == 0 || dy == 4) {
-                    block.setType(Material.OBSIDIAN);
+                    block.setType(Material.OBSIDIAN); // Top and bottom
                 } else {
-                    block.setType(Material.NETHER_PORTAL);
+                    block.setType(Material.NETHER_PORTAL); // Inner portal blocks
                 }
             }
         }
 
+        // Add side support pillars (helps with stability)
         for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
+        }
+
+        // Force portal blocks one more time to make sure they are set
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 1; dy <= 3; dy++) {
+                world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
+            }
         }
     }
 }
