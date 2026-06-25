@@ -64,7 +64,6 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // Read config values
         boolean boundsEnabled = plugin.getConfig().getBoolean("coordinate-bounds.enabled", false);
         int configMinX = plugin.getConfig().getInt("coordinate-bounds.min-x", -9999);
         int configMaxX = plugin.getConfig().getInt("coordinate-bounds.max-x", 9999);
@@ -73,7 +72,6 @@ public class PortalTravelListener implements Listener {
         int overworldBuffer = plugin.getConfig().getInt("coordinate-bounds.overworld-buffer", 750);
         int netherMaxY = plugin.getConfig().getInt("coordinate-bounds.nether-max-y", 120);
 
-        // Calculate effective bounds (these are final)
         final int effectiveMinX;
         final int effectiveMaxX;
         final int effectiveMinZ;
@@ -91,7 +89,6 @@ public class PortalTravelListener implements Listener {
             effectiveMaxZ = configMaxZ;
         }
 
-        // Bounds check using final variables
         if (boundsEnabled) {
             if (dest.getX() < effectiveMinX || dest.getX() > effectiveMaxX ||
                 dest.getZ() < effectiveMinZ || dest.getZ() > effectiveMaxZ) {
@@ -116,15 +113,16 @@ public class PortalTravelListener implements Listener {
 
             attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 60, safeLoc -> {
                 if (safeLoc != null) {
-                    int finalY = safeLoc.getBlockY();
-                    if (dest.getWorld().getEnvironment() == World.Environment.NETHER && finalY > netherMaxY) {
-                        finalY = netherMaxY;
+                    int portalY = safeLoc.getBlockY();
+                    if (dest.getWorld().getEnvironment() == World.Environment.NETHER && portalY > netherMaxY) {
+                        portalY = netherMaxY;
                     }
+                    final int finalPortalY = portalY;
 
                     Bukkit.getRegionScheduler().execute(plugin, safeLoc.getWorld(),
                         safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, () -> {
-                            createFullLitPortal(safeLoc.getWorld(), safeLoc.getBlockX(), finalY, safeLoc.getBlockZ());
-                            Location spawn = new Location(safeLoc.getWorld(), safeLoc.getX() + 0.5, finalY + 0.85, safeLoc.getZ() + 0.5);
+                            createFullLitPortal(safeLoc.getWorld(), safeLoc.getBlockX(), finalPortalY, safeLoc.getBlockZ());
+                            Location spawn = new Location(safeLoc.getWorld(), safeLoc.getX() + 0.5, finalPortalY + 0.85, safeLoc.getZ() + 0.5);
                             doTeleport(player, spawn);
                         });
                 } else {
