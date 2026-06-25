@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v11 - MAXIMUM LOGGING + Higher Spawn Loaded");
+        plugin.getLogger().info("[NetherRatio] Debug v12 - Very High Spawn + Max Logging");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -38,38 +38,35 @@ public class PortalTravelListener implements Listener {
 
         plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL ===");
         plugin.getLogger().info("[Portal] Player: " + player.getName());
-        plugin.getLogger().info("[Portal] Entry location: " + formatLoc(to));
+        plugin.getLogger().info("[Portal] Entry: " + formatLoc(to));
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
-            plugin.getLogger().warning("[Portal] Failed to calculate destination");
             player.teleportAsync(originalPortal);
             return;
         }
 
-        plugin.getLogger().info("[Portal] Calculated 2:1 destination: " + formatLoc(customDest));
-
         findSafeLocationAsync(customDest, safeDest -> {
-            plugin.getLogger().info("[Portal] Safe location search completed: " + formatLoc(safeDest));
+            plugin.getLogger().info("[Portal] Calculated safe dest: " + formatLoc(safeDest));
 
             Location target = findNearestPortal(safeDest, 8);
 
             Location spawnLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                spawnLoc = target.clone().add(0, 2.5, 0);   // Higher spawn
+                spawnLoc = target.clone().add(0, 3.0, 0);   // <<< Much higher spawn
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0, 2.5, 0);
-                    plugin.getLogger().info("[Portal] Created NEW portal at: " + formatLoc(spawnLoc));
+                    spawnLoc = safeDest.clone().add(0, 3.0, 0);
+                    plugin.getLogger().info("[Portal] Created new portal - spawning at " + formatLoc(spawnLoc));
                 } else {
                     spawnLoc = originalPortal;
-                    plugin.getLogger().warning("[Portal] No safe spot found - falling back to original portal");
+                    plugin.getLogger().warning("[Portal] No safe spot - falling back");
                 }
             }
 
-            plugin.getLogger().info("[Teleport] Final spawn location: " + formatLoc(spawnLoc));
+            plugin.getLogger().info("[Teleport] FINAL SPAWN LOCATION: " + formatLoc(spawnLoc));
             teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
@@ -78,7 +75,6 @@ public class PortalTravelListener implements Listener {
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
             event.setCancelled(true);
-            plugin.getLogger().info("[Portal] Cancelled vanilla portal creation");
         }
     }
 
@@ -90,7 +86,7 @@ public class PortalTravelListener implements Listener {
             plugin.getLogger().info("[Teleport] Success=" + success + " | Player now at " + formatLoc(current));
 
             if (success) {
-                player.setNoDamageTicks(160); // 8 seconds of no damage
+                player.setNoDamageTicks(200); // 10 seconds of no damage
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
