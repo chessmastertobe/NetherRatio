@@ -26,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Inside Portal Spawn Version");
+        plugin.getLogger().info("[NetherRatio] Adjusted Centering Version");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -48,12 +48,12 @@ public class PortalTravelListener implements Listener {
 
             Location spawnLoc;
             if (target != null) {
-                // Spawn inside the portal blocks (not above them)
-                spawnLoc = target.clone().add(0.5, 0.9, 0.5);
+                // Adjusted horizontal centering (was 0.5, now trying 0.3)
+                spawnLoc = target.clone().add(0.3, 0.85, 0.5);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.5, 0.9, 0.5);
+                    spawnLoc = safeDest.clone().add(0.3, 0.85, 0.5);
                 } else {
                     spawnLoc = originalPortal;
                 }
