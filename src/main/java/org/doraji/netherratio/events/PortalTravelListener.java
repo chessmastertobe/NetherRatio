@@ -25,12 +25,17 @@ public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
     private final ConfigManager cm;
+
+    // Cooldown to prevent spam
     private final Map<UUID, Long> lastPortalUse = new HashMap<>();
+
+    // Protection flag: tracks when we last teleported this player via our plugin
+    private final Map<UUID, Long> justTeleportedByPlugin = new HashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia + Config Bounds + Roof Protection");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Smart Arrival Protection");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -38,6 +43,24 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
+        // === NEW PROTECTION SYSTEM ===
+        // If we recently teleported this player and they are still in a portal, ignore the event
+        if (justTeleportedByPlugin.containsKey(uuid)) {
+            long timeSinceTeleport = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
+            if (timeSinceTeleport < 5000) { // 5 seconds protection
+                if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
+                    return; // Still inside portal after our teleport → ignore
+                } else {
+                    // Player has stepped out → clear protection
+                    justTeleportedByPlugin.remove(uuid);
+                }
+            } else {
+                // Protection expired
+                justTeleportedByPlugin.remove(uuid);
+            }
+        }
+
+        // Normal cooldown check
         long now = System.currentTimeMillis();
         if (lastPortalUse.containsKey(uuid)) {
             if (now - lastPortalUse.get(uuid) < 6000) {
@@ -107,7 +130,7 @@ public class PortalTravelListener implements Listener {
 
             if (existing != null) {
                 Location spawn = existing.clone().add(0.5, 0.85, 0.5);
-                doTeleport(player, spawn);
+                doTeleportWithProtection(player, spawn);
                 return;
             }
 
@@ -123,7 +146,7 @@ public class PortalTravelListener implements Listener {
                         safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, () -> {
                             createFullLitPortal(safeLoc.getWorld(), safeLoc.getBlockX(), finalPortalY, safeLoc.getBlockZ());
                             Location spawn = new Location(safeLoc.getWorld(), safeLoc.getX() + 0.5, finalPortalY + 0.85, safeLoc.getZ() + 0.5);
-                            doTeleport(player, spawn);
+                            doTeleportWithProtection(player, spawn);
                         });
                 } else {
                     int highY = dest.getWorld().getEnvironment() == World.Environment.NETHER 
@@ -134,10 +157,22 @@ public class PortalTravelListener implements Listener {
                     Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(),
                         dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
                             createEmergencyHighPortal(dest.getWorld(), dest.getBlockX(), highY, dest.getBlockZ());
-                            doTeleport(player, fallback);
+                            doTeleportWithProtection(player, fallback);
                         });
                 }
             });
+        });
+    }
+
+    // New method that sets the protection flag after teleport
+    private void doTeleportWithProtection(Player player, Location target) {
+        player.teleportAsync(target).thenAccept(success -> {
+            if (success) {
+                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
+                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
+                player.setNoDamageTicks(200);
+                player.setFallDistance(0);
+            }
         });
     }
 
