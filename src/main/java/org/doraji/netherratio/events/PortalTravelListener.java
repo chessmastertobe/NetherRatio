@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Using Your RTP Safe Location Logic");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Your RTP Logic");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -42,26 +42,27 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // First, check for existing portal near destination (wider search)
-        Location existing = findNearestPortal(dest, 20);
-        if (existing != null) {
-            Location spawn = existing.clone().add(0.5, 0.85, 0.5);
-            doTeleport(player, spawn);
-            return;
-        }
+        Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
+            dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
 
-        // No existing portal found → use your RTP-style safe location search
-        attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 40, safeLoc -> {
-            if (safeLoc != null) {
-                createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
+            Location existing = findNearestPortal(dest, 20);
+            if (existing != null) {
+                Location spawn = existing.clone().add(0.5, 0.85, 0.5);
                 doTeleport(player, spawn);
-            } else {
-                // True fallback
-                Location high = dest.clone().add(0, 25, 0);
-                createSafetyPlatform(high);
-                doTeleport(player, high);
+                return;
             }
+
+            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 40, safeLoc -> {
+                if (safeLoc != null) {
+                    createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                    Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
+                    doTeleport(player, spawn);
+                } else {
+                    Location high = dest.clone().add(0, 25, 0);
+                    createSafetyPlatform(high);
+                    doTeleport(player, high);
+                }
+            });
         });
     }
 
@@ -75,7 +76,6 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== Your RTP-Style Safe Location Finding ====================
     private void attemptSafeLocation(World world, int x, int z, int maxAttempts, Consumer<Location> callback) {
         attemptSafeLocation(world, x, z, maxAttempts, 0, callback);
     }
@@ -86,7 +86,6 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // Search in a reasonable height range for Nether
         int y = 40 + (int)(Math.random() * 70);
 
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
