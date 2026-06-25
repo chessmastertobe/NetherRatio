@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Using RTP-Style Safe Location Finding");
+        plugin.getLogger().info("[NetherRatio] Using Your RTP Safe Location Logic");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -42,27 +42,40 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // Use RTP-style safe location finding on the destination world
-        attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 30, safeLoc -> {
+        // First, check for existing portal near destination (wider search)
+        Location existing = findNearestPortal(dest, 20);
+        if (existing != null) {
+            Location spawn = existing.clone().add(0.5, 0.85, 0.5);
+            doTeleport(player, spawn);
+            return;
+        }
+
+        // No existing portal found → use your RTP-style safe location search
+        attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 40, safeLoc -> {
             if (safeLoc != null) {
-                // Create portal at safe location if needed
-                Location existing = findNearestPortal(safeLoc, 12);
-                if (existing == null) {
-                    createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                }
-                Location spawn = (existing != null) ? existing.clone().add(0.5, 0.85, 0.5) 
-                                                    : safeLoc.clone().add(0.5, 0.85, 0.5);
+                createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
                 doTeleport(player, spawn);
             } else {
-                // Last resort
-                Location high = dest.clone().add(0, 30, 0);
+                // True fallback
+                Location high = dest.clone().add(0, 25, 0);
                 createSafetyPlatform(high);
                 doTeleport(player, high);
             }
         });
     }
 
-    // ==================== RTP-Style Safe Location Finding ====================
+    private void doTeleport(Player player, Location target) {
+        player.teleportAsync(target).thenAccept(success -> {
+            if (success) {
+                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
+                player.setNoDamageTicks(200);
+                player.setFallDistance(0);
+            }
+        });
+    }
+
+    // ==================== Your RTP-Style Safe Location Finding ====================
     private void attemptSafeLocation(World world, int x, int z, int maxAttempts, Consumer<Location> callback) {
         attemptSafeLocation(world, x, z, maxAttempts, 0, callback);
     }
@@ -73,26 +86,19 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        int y = 30 + (int)(Math.random() * 80); // Search between Y 30-110
+        // Search in a reasonable height range for Nether
+        int y = 40 + (int)(Math.random() * 70);
 
-        Block feet = world.getBlockAt(x, y, z);
-        Block head = world.getBlockAt(x, y + 1, z);
-        Block below = world.getBlockAt(x, y - 1, z);
+        Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
+            Block feet = world.getBlockAt(x, y, z);
+            Block head = world.getBlockAt(x, y + 1, z);
+            Block below = world.getBlockAt(x, y - 1, z);
 
-        if (feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid()) {
-            callback.accept(new Location(world, x + 0.5, y, z + 0.5));
-        } else {
-            Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
-                attemptSafeLocation(world, x, z, maxAttempts, attempt + 1, callback), 1L);
-        }
-    }
-
-    private void doTeleport(Player player, Location target) {
-        player.teleportAsync(target).thenAccept(success -> {
-            if (success) {
-                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
-                player.setNoDamageTicks(200);
-                player.setFallDistance(0);
+            if (feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid()) {
+                callback.accept(new Location(world, x + 0.5, y, z + 0.5));
+            } else {
+                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
+                    attemptSafeLocation(world, x, z, maxAttempts, attempt + 1, callback), 1L);
             }
         });
     }
@@ -127,7 +133,7 @@ public class PortalTravelListener implements Listener {
 
         for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
             for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
-                for (int y = center.getBlockY() - 10; y <= center.getBlockY() + 20; y++) {
+                for (int y = center.getBlockY() - 12; y <= center.getBlockY() + 25; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
                         return new Location(world, x, y, z);
                     }
