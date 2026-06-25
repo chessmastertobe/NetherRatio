@@ -1,5 +1,6 @@
 package org.doraji.netherratio.events;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -14,6 +15,8 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 
+import java.util.function.Consumer;
+
 public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
@@ -22,18 +25,16 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal System v3 Loaded");
+        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal Handler v5 (with Teleport Retry) Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         Location to = event.getTo();
-        if (to == null) return;
+        if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
-
-        Location originalPortal = event.getFrom().clone(); // Save exact entry point
+        Location originalPortal = event.getFrom().clone(); // Safe fallback
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
@@ -42,21 +43,19 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        Location safeDest = findSafeLocation(customDest);
+        // Safe location search on correct thread
+        findSafeLocationAsync(customDest, safeDest -> {
+            Location target = findNearestPortal(safeDest, 8);
+            if (target == null) {
+                target = safeDest;
+                if (isSafeSpot(target.getWorld(), target.getBlockX(), target.getBlockY(), target.getBlockZ())) {
+                    createBasicPortal(target.getWorld(), target.getBlockX(), target.getBlockY(), target.getBlockZ());
+                }
+            }
 
-        // Check if there's already a portal nearby
-        Location existing = findNearestPortal(safeDest, 8);
-
-        if (existing != null) {
-            player.teleportAsync(existing);
-        } else if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
-            createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-            player.teleportAsync(safeDest);
-        } else {
-            // Strong fallback
-            player.teleportAsync(originalPortal);
-            player.sendMessage("§cCould not find a safe portal location. Returned to original portal.");
-        }
+            // Perform teleport with retry
+            teleportWithRetry(player, target, originalPortal, 3); // 3 attempts
+        });
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -66,40 +65,40 @@ public class PortalTravelListener implements Listener {
         }
     }
 
-    // ==================== Core Logic ====================
-
-    private Location calculateCustomDestination(Location from) {
-        World fromWorld = from.getWorld();
-        if (fromWorld == null) return null;
-
-        World toWorld;
-        double newX, newZ;
-        double scale;
-
-        if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
-            toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
-            scale = cm.getRatioForWorld(fromWorld.getName());
-            newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
-            newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
-        } else {
-            toWorld = cm.getLinkedOverworld(fromWorld.getName());
-            scale = cm.getRatioForNetherWorld(fromWorld.getName());
-            newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
-            newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
-        }
-
-        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
+    // ==================== Teleport with Retry ====================
+    private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
+        player.teleportAsync(target).thenAccept(success -> {
+            if (!success && attemptsLeft > 0) {
+                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
+                    teleportWithRetry(player, target, fallback, attemptsLeft - 1);
+                }, 2L); // Retry after 2 ticks
+            } else if (!success) {
+                player.teleportAsync(fallback);
+                player.sendMessage("§cCould not complete portal travel. Returned to original portal.");
+            }
+        });
     }
 
-    private Location findSafeLocation(Location target) {
+    // ==================== Safe Location (RTP Style) ====================
+    private void findSafeLocationAsync(Location target, Consumer<Location> callback) {
         World world = target.getWorld();
-        if (world == null) return target;
+        if (world == null) {
+            callback.accept(target);
+            return;
+        }
 
+        Bukkit.getRegionScheduler().execute(plugin, world, target.getBlockX() >> 4, target.getBlockZ() >> 4, () -> {
+            Location safe = findSafeLocationSync(target);
+            callback.accept(safe);
+        });
+    }
+
+    private Location findSafeLocationSync(Location target) {
+        World world = target.getWorld();
         int x = target.getBlockX();
         int z = target.getBlockZ();
 
-        // Search a wide vertical range
-        for (int y = Math.min(target.getBlockY() + 20, 150); y >= Math.max(target.getBlockY() - 20, 20); y--) {
+        for (int y = Math.min(target.getBlockY() + 25, 150); y >= Math.max(target.getBlockY() - 25, 20); y--) {
             if (isSafeSpot(world, x, y, z)) {
                 return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
             }
@@ -145,5 +144,30 @@ public class PortalTravelListener implements Listener {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
+    }
+
+    private Location calculateCustomDestination(Location from) {
+        World fromWorld = from.getWorld();
+        if (fromWorld == null) return null;
+
+        World toWorld;
+        double newX, newZ;
+        double scale;
+
+        if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
+            toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
+            if (toWorld == null) return null;
+            scale = cm.getRatioForWorld(fromWorld.getName());
+            newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
+        } else {
+            toWorld = cm.getLinkedOverworld(fromWorld.getName());
+            if (toWorld == null) return null;
+            scale = cm.getRatioForNetherWorld(fromWorld.getName());
+            newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
+            newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
+        }
+
+        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
     }
 }
