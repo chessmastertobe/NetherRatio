@@ -26,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Vanilla Feel Version - Portal Sound Only");
+        plugin.getLogger().info("[NetherRatio] Inside Portal Spawn Version");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -48,11 +48,12 @@ public class PortalTravelListener implements Listener {
 
             Location spawnLoc;
             if (target != null) {
-                spawnLoc = target.clone().add(0.5, 1.25, 0.5); // Centered inside portal
+                // Spawn inside the portal blocks (not above them)
+                spawnLoc = target.clone().add(0.5, 0.9, 0.5);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.5, 1.25, 0.5);
+                    spawnLoc = safeDest.clone().add(0.5, 0.9, 0.5);
                 } else {
                     spawnLoc = originalPortal;
                 }
@@ -65,7 +66,6 @@ public class PortalTravelListener implements Listener {
     private void doTeleportWithEffects(Player player, Location target, Location fallback) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                // Only vanilla portal sound
                 player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                 player.setNoDamageTicks(160);
                 player.setFallDistance(0);
