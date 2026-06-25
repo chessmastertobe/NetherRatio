@@ -22,7 +22,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Custom 2:1 Portal Handler v2 Loaded (Safe Fallback)");
+        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal System v3 Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -33,38 +33,32 @@ public class PortalTravelListener implements Listener {
 
         if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        Location originalPortal = event.getFrom().clone(); // Save where they entered
+        Location originalPortal = event.getFrom().clone(); // Save exact entry point
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
-            player.sendMessage("§cPortal failed. Please try again.");
+            player.teleportAsync(originalPortal);
+            player.sendMessage("§cPortal error. Returned to original portal.");
             return;
         }
 
         Location safeDest = findSafeLocation(customDest);
 
-        // Search for existing portal
+        // Check if there's already a portal nearby
         Location existing = findNearestPortal(safeDest, 8);
 
         if (existing != null) {
             player.teleportAsync(existing);
-            plugin.getLogger().info("[NetherRatio] Linked " + player.getName() + " to existing portal");
+        } else if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
+            createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
+            player.teleportAsync(safeDest);
         } else {
-            // Try to create new portal
-            if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
-                createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                player.teleportAsync(safeDest);
-                plugin.getLogger().info("[NetherRatio] Created new portal for " + player.getName());
-            } else {
-                // Fallback: Send player back to original portal
-                player.teleportAsync(originalPortal);
-                player.sendMessage("§cCould not find a safe location for portal. Returned to original portal.");
-                plugin.getLogger().warning("[NetherRatio] No safe location - returned " + player.getName() + " to original portal");
-            }
+            // Strong fallback
+            player.teleportAsync(originalPortal);
+            player.sendMessage("§cCould not find a safe portal location. Returned to original portal.");
         }
     }
 
-    // Prevent vanilla duplicate portals
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
@@ -72,7 +66,7 @@ public class PortalTravelListener implements Listener {
         }
     }
 
-    // ==================== Helper Methods ====================
+    // ==================== Core Logic ====================
 
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
@@ -84,13 +78,11 @@ public class PortalTravelListener implements Listener {
 
         if (fromWorld.getEnvironment() == World.Environment.NORMAL) {
             toWorld = cm.getLinkedNetherWorld(fromWorld.getName());
-            if (toWorld == null) return null;
             scale = cm.getRatioForWorld(fromWorld.getName());
             newX = CoordinateMath.toNether(from.getX(), scale, cm.getOffsetXForWorld(fromWorld.getName()));
             newZ = CoordinateMath.toNether(from.getZ(), scale, cm.getOffsetZForWorld(fromWorld.getName()));
         } else {
             toWorld = cm.getLinkedOverworld(fromWorld.getName());
-            if (toWorld == null) return null;
             scale = cm.getRatioForNetherWorld(fromWorld.getName());
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
@@ -106,7 +98,8 @@ public class PortalTravelListener implements Listener {
         int x = target.getBlockX();
         int z = target.getBlockZ();
 
-        for (int y = Math.min(target.getBlockY() + 12, 120); y >= Math.max(target.getBlockY() - 12, 30); y--) {
+        // Search a wide vertical range
+        for (int y = Math.min(target.getBlockY() + 20, 150); y >= Math.max(target.getBlockY() - 20, 20); y--) {
             if (isSafeSpot(world, x, y, z)) {
                 return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
             }
@@ -128,7 +121,7 @@ public class PortalTravelListener implements Listener {
 
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
-                for (int y = center.getBlockY() - 5; y <= center.getBlockY() + 10; y++) {
+                for (int y = center.getBlockY() - 6; y <= center.getBlockY() + 12; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
                         return new Location(world, x + 0.5, y, z + 0.5);
                     }
