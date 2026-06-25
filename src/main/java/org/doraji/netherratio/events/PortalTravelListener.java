@@ -11,10 +11,11 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.world.PortalCreateEvent;
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
+
+import java.util.function.Consumer;
 
 public class PortalTravelListener implements Listener {
 
@@ -24,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia Compliant Version");
+        plugin.getLogger().info("[NetherRatio] Using RTP-Style Safe Location Finding");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -34,35 +35,56 @@ public class PortalTravelListener implements Listener {
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
         Location original = event.getFrom().clone();
-
         Location dest = calculateCustomDestination(to);
+
         if (dest == null) {
             player.teleportAsync(original);
             return;
         }
 
-        // Schedule work on the DESTINATION world's region thread (Folia safe)
-        Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
-            dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
-
-            Location existing = findNearestPortalSafe(dest, 16);
-
-            if (existing != null) {
-                Location spawn = existing.clone().add(0.5, 0.9, 0.5);
+        // Use RTP-style safe location finding on the destination world
+        attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 30, safeLoc -> {
+            if (safeLoc != null) {
+                // Create portal at safe location if needed
+                Location existing = findNearestPortal(safeLoc, 12);
+                if (existing == null) {
+                    createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                }
+                Location spawn = (existing != null) ? existing.clone().add(0.5, 0.85, 0.5) 
+                                                    : safeLoc.clone().add(0.5, 0.85, 0.5);
                 doTeleport(player, spawn);
             } else {
-                Location safe = findSafeY(dest);
-                if (safe != null) {
-                    createBasicPortal(safe.getWorld(), safe.getBlockX(), safe.getBlockY(), safe.getBlockZ());
-                    Location spawn = safe.clone().add(0.5, 0.9, 0.5);
-                    doTeleport(player, spawn);
-                } else {
-                    Location high = dest.clone().add(0, 25, 0);
-                    createSafetyPlatform(high);
-                    doTeleport(player, high);
-                }
+                // Last resort
+                Location high = dest.clone().add(0, 30, 0);
+                createSafetyPlatform(high);
+                doTeleport(player, high);
             }
         });
+    }
+
+    // ==================== RTP-Style Safe Location Finding ====================
+    private void attemptSafeLocation(World world, int x, int z, int maxAttempts, Consumer<Location> callback) {
+        attemptSafeLocation(world, x, z, maxAttempts, 0, callback);
+    }
+
+    private void attemptSafeLocation(World world, int x, int z, int maxAttempts, int attempt, Consumer<Location> callback) {
+        if (attempt >= maxAttempts) {
+            callback.accept(null);
+            return;
+        }
+
+        int y = 30 + (int)(Math.random() * 80); // Search between Y 30-110
+
+        Block feet = world.getBlockAt(x, y, z);
+        Block head = world.getBlockAt(x, y + 1, z);
+        Block below = world.getBlockAt(x, y - 1, z);
+
+        if (feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid()) {
+            callback.accept(new Location(world, x + 0.5, y, z + 0.5));
+        } else {
+            Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
+                attemptSafeLocation(world, x, z, maxAttempts, attempt + 1, callback), 1L);
+        }
     }
 
     private void doTeleport(Player player, Location target) {
@@ -75,55 +97,7 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== Folia-Safe Helper Methods ====================
-
-    private Location findNearestPortalSafe(Location center, int radius) {
-        World world = center.getWorld();
-        if (world == null) return null;
-
-        for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
-            for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
-                for (int y = center.getBlockY() - 10; y <= center.getBlockY() + 20; y++) {
-                    if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
-                        return new Location(world, x, y, z);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private Location findSafeY(Location base) {
-        World world = base.getWorld();
-        if (world == null) return null;
-
-        for (int y = base.getBlockY() + 25; y >= base.getBlockY() - 25; y--) {
-            if (isSafeSpot(world, base.getBlockX(), y, base.getBlockZ())) {
-                return new Location(world, base.getBlockX(), y, base.getBlockZ());
-            }
-        }
-        return null;
-    }
-
-    private boolean isSafeSpot(World world, int x, int y, int z) {
-        Block feet = world.getBlockAt(x, y, z);
-        Block head = world.getBlockAt(x, y + 1, z);
-        Block ground = world.getBlockAt(x, y - 1, z);
-        return feet.getType().isAir() && head.getType().isAir() && ground.getType().isSolid();
-    }
-
-    private void createSafetyPlatform(Location loc) {
-        World world = loc.getWorld();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                world.getBlockAt(loc.getBlockX() + dx, loc.getBlockY() - 1, loc.getBlockZ() + dz)
-                     .setType(Material.OBSIDIAN);
-            }
-        }
-    }
-
     private Location calculateCustomDestination(Location from) {
-        // Keep your existing logic here
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -147,6 +121,22 @@ public class PortalTravelListener implements Listener {
         return new Location(toWorld, newX, from.getY(), newZ);
     }
 
+    private Location findNearestPortal(Location center, int radius) {
+        World world = center.getWorld();
+        if (world == null) return null;
+
+        for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
+            for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
+                for (int y = center.getBlockY() - 10; y <= center.getBlockY() + 20; y++) {
+                    if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
+                        return new Location(world, x, y, z);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private void createBasicPortal(World world, int x, int y, int z) {
         for (int dx = -1; dx <= 2; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
@@ -159,6 +149,16 @@ public class PortalTravelListener implements Listener {
         for (int dy = 1; dy <= 3; dy++) {
             for (int dx = 0; dx <= 1; dx++) {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
+            }
+        }
+    }
+
+    private void createSafetyPlatform(Location loc) {
+        World world = loc.getWorld();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                world.getBlockAt(loc.getBlockX() + dx, loc.getBlockY() - 1, loc.getBlockZ() + dz)
+                     .setType(Material.OBSIDIAN);
             }
         }
     }
