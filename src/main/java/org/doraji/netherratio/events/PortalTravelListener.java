@@ -58,33 +58,43 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        // World border check
         WorldBorder border = dest.getWorld().getWorldBorder();
         if (!border.isInside(dest)) {
             player.teleportAsync(original);
             return;
         }
 
-        // Get bounds from config
+        // Read config values
         boolean boundsEnabled = plugin.getConfig().getBoolean("coordinate-bounds.enabled", false);
-        int minX = plugin.getConfig().getInt("coordinate-bounds.min-x", -9999);
-        int maxX = plugin.getConfig().getInt("coordinate-bounds.max-x", 9999);
-        int minZ = plugin.getConfig().getInt("coordinate-bounds.min-z", -9999);
-        int maxZ = plugin.getConfig().getInt("coordinate-bounds.max-z", 9999);
+        int configMinX = plugin.getConfig().getInt("coordinate-bounds.min-x", -9999);
+        int configMaxX = plugin.getConfig().getInt("coordinate-bounds.max-x", 9999);
+        int configMinZ = plugin.getConfig().getInt("coordinate-bounds.min-z", -9999);
+        int configMaxZ = plugin.getConfig().getInt("coordinate-bounds.max-z", 9999);
         int overworldBuffer = plugin.getConfig().getInt("coordinate-bounds.overworld-buffer", 750);
         int netherMaxY = plugin.getConfig().getInt("coordinate-bounds.nether-max-y", 120);
 
-        // Apply buffer for Overworld
+        // Calculate effective bounds (these are final)
+        final int effectiveMinX;
+        final int effectiveMaxX;
+        final int effectiveMinZ;
+        final int effectiveMaxZ;
+
         if (dest.getWorld().getEnvironment() == World.Environment.NORMAL && boundsEnabled) {
-            minX += overworldBuffer;
-            maxX -= overworldBuffer;
-            minZ += overworldBuffer;
-            maxZ -= overworldBuffer;
+            effectiveMinX = configMinX + overworldBuffer;
+            effectiveMaxX = configMaxX - overworldBuffer;
+            effectiveMinZ = configMinZ + overworldBuffer;
+            effectiveMaxZ = configMaxZ - overworldBuffer;
+        } else {
+            effectiveMinX = configMinX;
+            effectiveMaxX = configMaxX;
+            effectiveMinZ = configMinZ;
+            effectiveMaxZ = configMaxZ;
         }
 
-        // Check against bounds
+        // Bounds check using final variables
         if (boundsEnabled) {
-            if (dest.getX() < minX || dest.getX() > maxX || dest.getZ() < minZ || dest.getZ() > maxZ) {
+            if (dest.getX() < effectiveMinX || dest.getX() > effectiveMaxX ||
+                dest.getZ() < effectiveMinZ || dest.getZ() > effectiveMaxZ) {
                 player.teleportAsync(original);
                 return;
             }
@@ -95,7 +105,9 @@ public class PortalTravelListener implements Listener {
         Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
             dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
 
-            Location existing = findNearestPortal(dest, searchRadius, boundsEnabled, minX, maxX, minZ, maxZ);
+            Location existing = findNearestPortal(dest, searchRadius, boundsEnabled, 
+                    effectiveMinX, effectiveMaxX, effectiveMinZ, effectiveMaxZ);
+
             if (existing != null) {
                 Location spawn = existing.clone().add(0.5, 0.85, 0.5);
                 doTeleport(player, spawn);
@@ -104,7 +116,6 @@ public class PortalTravelListener implements Listener {
 
             attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 60, safeLoc -> {
                 if (safeLoc != null) {
-                    // Apply nether max Y if going to Nether
                     int finalY = safeLoc.getBlockY();
                     if (dest.getWorld().getEnvironment() == World.Environment.NETHER && finalY > netherMaxY) {
                         finalY = netherMaxY;
@@ -117,7 +128,6 @@ public class PortalTravelListener implements Listener {
                             doTeleport(player, spawn);
                         });
                 } else {
-                    // Emergency fallback
                     int highY = dest.getWorld().getEnvironment() == World.Environment.NETHER 
                             ? Math.min(netherMaxY, 120) 
                             : dest.getBlockY() + 50;
@@ -193,7 +203,8 @@ public class PortalTravelListener implements Listener {
         return new Location(toWorld, newX, from.getY(), newZ);
     }
 
-    private Location findNearestPortal(Location center, int radius, boolean boundsEnabled, int minX, int maxX, int minZ, int maxZ) {
+    private Location findNearestPortal(Location center, int radius, boolean boundsEnabled, 
+                                       int minX, int maxX, int minZ, int maxZ) {
         World world = center.getWorld();
         if (world == null) return null;
 
@@ -257,7 +268,6 @@ public class PortalTravelListener implements Listener {
             }
         }
 
-        // Extra platforms front and back
         for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y - 1, z - 1).setType(Material.OBSIDIAN);
             world.getBlockAt(x + dx, y - 1, z + 1).setType(Material.OBSIDIAN);
