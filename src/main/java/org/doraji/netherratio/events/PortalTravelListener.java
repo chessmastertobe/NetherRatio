@@ -15,24 +15,40 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 public class PortalTravelListener implements Listener {
 
     private final NetherRatio plugin;
     private final ConfigManager cm;
+    private final Map<UUID, Long> lastPortalUse = new HashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] DEBUG MODE - Always Send Player");
+        plugin.getLogger().info("[NetherRatio] Strict Folia + Strong Anti-Loop (Full File)");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+
+        // Strong anti-loop protection (4 seconds)
+        long now = System.currentTimeMillis();
+        if (lastPortalUse.containsKey(uuid)) {
+            if (now - lastPortalUse.get(uuid) < 4000) {
+                return;
+            }
+        }
+
         Location to = event.getTo();
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
+
+        lastPortalUse.put(uuid, now);
 
         Location original = event.getFrom().clone();
         Location dest = calculateCustomDestination(to);
@@ -45,28 +61,22 @@ public class PortalTravelListener implements Listener {
         Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
             dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
 
-            // 1. Try to find existing portal
             Location existing = findNearestPortal(dest, 40);
             if (existing != null) {
                 Location spawn = existing.clone().add(0.5, 0.85, 0.5);
-                plugin.getLogger().info("[DEBUG] Found existing portal at " + format(spawn));
                 doTeleport(player, spawn);
                 return;
             }
 
-            // 2. No existing portal → try safe location
             attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 50, safeLoc -> {
                 Location finalSpawn;
 
                 if (safeLoc != null) {
                     createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     finalSpawn = safeLoc.clone().add(0.5, 0.85, 0.5);
-                    plugin.getLogger().info("[DEBUG] Created portal at safe location: " + format(finalSpawn));
                 } else {
-                    // Still send the player even if not perfect
-                    finalSpawn = dest.clone().add(0.5, 40, 0.5); // High but safe-ish Y
+                    finalSpawn = dest.clone().add(0.5, 40, 0.5);
                     createBasicPortal(dest.getWorld(), dest.getBlockX(), (int)finalSpawn.getY(), dest.getBlockZ());
-                    plugin.getLogger().warning("[DEBUG] Could not find safe spot. Sending player to higher location anyway.");
                 }
 
                 doTeleport(player, finalSpawn);
@@ -164,10 +174,5 @@ public class PortalTravelListener implements Listener {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
-    }
-
-    private String format(Location loc) {
-        if (loc == null || loc.getWorld() == null) return "null";
-        return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
     }
 }
