@@ -26,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Fallback Disabled for Testing");
+        plugin.getLogger().info("[NetherRatio] Heavy Debug Stable Version");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -35,51 +35,81 @@ public class PortalTravelListener implements Listener {
         Location to = event.getTo();
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        Location originalPortal = event.getFrom().clone();
+        Location original = event.getFrom().clone();
+        plugin.getLogger().info("[Portal] Player entered portal at " + format(original));
 
-        Location customDest = calculateCustomDestination(to);
-        if (customDest == null) {
-            player.teleportAsync(originalPortal);
+        Location dest = calculateCustomDestination(to);
+        if (dest == null) {
+            player.teleportAsync(original);
             return;
         }
 
-        findSafeLocationAsync(customDest, safeDest -> {
-            Location target = findNearestPortal(safeDest, 8);
+        // Try to find existing portal first
+        Location existing = findNearestPortal(dest, 16);
+        if (existing != null) {
+            Location spawn = existing.clone().add(0.5, 0.9, 0.5);
+            plugin.getLogger().info("[Portal] Found existing portal → teleporting to " + format(spawn));
+            teleportSafe(player, spawn);
+            return;
+        }
 
-            Location spawnLoc;
-            if (target != null) {
-                spawnLoc = target.clone().add(0.3, 0.85, 0.5);
-            } else {
-                if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
-                    createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.3, 0.85, 0.5);
-                } else {
-                    // === FALLBACK TEMPORARILY DISABLED ===
-                    // spawnLoc = originalPortal;
-                    plugin.getLogger().warning("[Portal] No safe spot and fallback disabled - doing nothing");
-                    return; // Do nothing for now
-                }
-            }
-
-            doTeleportWithEffects(player, spawnLoc, originalPortal);
-        });
+        // No existing portal → try to create one safely
+        Location safeSpot = findSafeY(dest);
+        if (safeSpot != null) {
+            createBasicPortal(safeSpot.getWorld(), safeSpot.getBlockX(), safeSpot.getBlockY(), safeSpot.getBlockZ());
+            Location spawn = safeSpot.clone().add(0.5, 0.9, 0.5);
+            plugin.getLogger().info("[Portal] Created new portal → teleporting to " + format(spawn));
+            teleportSafe(player, spawn);
+        } else {
+            plugin.getLogger().warning("[Portal] Could not find safe location. Falling back to high Y.");
+            Location highSpawn = dest.clone().add(0, 20, 0);
+            createSafetyPlatform(highSpawn);
+            teleportSafe(player, highSpawn);
+        }
     }
 
-    private void doTeleportWithEffects(Player player, Location target, Location fallback) {
+    private void teleportSafe(Player player, Location target) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
                 player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
-                player.setNoDamageTicks(160);
+                player.setNoDamageTicks(200);
                 player.setFallDistance(0);
-            } else {
-                // Fallback disabled here too
-                plugin.getLogger().warning("[Teleport] Teleport failed and fallback is disabled");
             }
         });
     }
 
-    // ==================== Helper Methods ====================
+    private Location findSafeY(Location base) {
+        World world = base.getWorld();
+        int x = base.getBlockX();
+        int z = base.getBlockZ();
+
+        for (int y = base.getBlockY() + 20; y >= base.getBlockY() - 20; y--) {
+            if (isSafeSpot(world, x, y, z)) {
+                return new Location(world, x, y, z);
+            }
+        }
+        return null;
+    }
+
+    private boolean isSafeSpot(World world, int x, int y, int z) {
+        Block feet = world.getBlockAt(x, y, z);
+        Block head = world.getBlockAt(x, y + 1, z);
+        Block ground = world.getBlockAt(x, y - 1, z);
+        return feet.getType().isAir() && head.getType().isAir() && ground.getType().isSolid();
+    }
+
+    private void createSafetyPlatform(Location loc) {
+        World world = loc.getWorld();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                world.getBlockAt(loc.getBlockX() + dx, loc.getBlockY() - 1, loc.getBlockZ() + dz)
+                     .setType(Material.OBSIDIAN);
+            }
+        }
+    }
+
     private Location calculateCustomDestination(Location from) {
+        // Same as before (keep your existing logic)
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -100,52 +130,19 @@ public class PortalTravelListener implements Listener {
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         }
-
-        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
-    }
-
-    private void findSafeLocationAsync(Location target, Consumer<Location> callback) {
-        World world = target.getWorld();
-        if (world == null) {
-            callback.accept(target);
-            return;
-        }
-
-        Bukkit.getRegionScheduler().execute(plugin, world, target.getBlockX() >> 4, target.getBlockZ() >> 4, () -> {
-            callback.accept(findSafeLocationSync(target));
-        });
-    }
-
-    private Location findSafeLocationSync(Location target) {
-        World world = target.getWorld();
-        int x = target.getBlockX();
-        int z = target.getBlockZ();
-
-        for (int y = Math.min(target.getBlockY() + 30, 150); y >= Math.max(target.getBlockY() - 30, 20); y--) {
-            if (isSafeSpot(world, x, y, z)) {
-                return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
-            }
-        }
-        return target;
-    }
-
-    private boolean isSafeSpot(World world, int x, int y, int z) {
-        Block feet = world.getBlockAt(x, y, z);
-        Block head = world.getBlockAt(x, y + 1, z);
-        Block below = world.getBlockAt(x, y - 1, z);
-        return feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid();
+        return new Location(toWorld, newX, from.getY(), newZ);
     }
 
     private Location findNearestPortal(Location center, int radius) {
+        // Same improved version from before
         World world = center.getWorld();
-        int cx = center.getBlockX();
-        int cz = center.getBlockZ();
+        if (world == null) return null;
 
-        for (int x = cx - radius; x <= cx + radius; x++) {
-            for (int z = cz - radius; z <= cz + radius; z++) {
-                for (int y = center.getBlockY() - 6; y <= center.getBlockY() + 12; y++) {
+        for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
+            for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
+                for (int y = center.getBlockY() - 10; y <= center.getBlockY() + 20; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
-                        return new Location(world, x + 0.5, y, z + 0.5);
+                        return new Location(world, x, y, z);
                     }
                 }
             }
@@ -154,11 +151,12 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createBasicPortal(World world, int x, int y, int z) {
+        // Same as previous version
         for (int dx = -1; dx <= 2; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
-                Block block = world.getBlockAt(x + dx, y + dy, z);
+                Block b = world.getBlockAt(x + dx, y + dy, z);
                 if (dy == 0 || dy == 4 || dx == -1 || dx == 2) {
-                    if (block.getType().isAir()) block.setType(Material.OBSIDIAN);
+                    if (b.getType().isAir()) b.setType(Material.OBSIDIAN);
                 }
             }
         }
@@ -169,7 +167,7 @@ public class PortalTravelListener implements Listener {
         }
     }
 
-    private String formatLoc(Location loc) {
+    private String format(Location loc) {
         if (loc == null || loc.getWorld() == null) return "null";
         return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
     }
