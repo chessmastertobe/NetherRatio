@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal Handler v10 - Full Folia Compliant Loaded");
+        plugin.getLogger().info("[NetherRatio] Debug v11 - MAXIMUM LOGGING + Higher Spawn Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -36,35 +36,40 @@ public class PortalTravelListener implements Listener {
 
         Location originalPortal = event.getFrom().clone();
 
-        plugin.getLogger().info("[Portal] Player " + player.getName() + " entered portal at " + formatLoc(to));
+        plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL ===");
+        plugin.getLogger().info("[Portal] Player: " + player.getName());
+        plugin.getLogger().info("[Portal] Entry location: " + formatLoc(to));
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
+            plugin.getLogger().warning("[Portal] Failed to calculate destination");
             player.teleportAsync(originalPortal);
-            player.sendMessage("§cPortal error. Returned to original portal.");
             return;
         }
 
+        plugin.getLogger().info("[Portal] Calculated 2:1 destination: " + formatLoc(customDest));
+
         findSafeLocationAsync(customDest, safeDest -> {
-            plugin.getLogger().info("[Portal] Calculated safe destination: " + formatLoc(safeDest));
+            plugin.getLogger().info("[Portal] Safe location search completed: " + formatLoc(safeDest));
 
             Location target = findNearestPortal(safeDest, 8);
 
             Location spawnLoc;
             if (target != null) {
-                plugin.getLogger().info("[Portal] Found existing portal at " + formatLoc(target));
-                spawnLoc = target.clone().add(0, 1.8, 0); // Spawn higher in portal
+                plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
+                spawnLoc = target.clone().add(0, 2.5, 0);   // Higher spawn
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0, 1.8, 0);
-                    plugin.getLogger().info("[Portal] Created new portal at " + formatLoc(spawnLoc));
+                    spawnLoc = safeDest.clone().add(0, 2.5, 0);
+                    plugin.getLogger().info("[Portal] Created NEW portal at: " + formatLoc(spawnLoc));
                 } else {
                     spawnLoc = originalPortal;
                     plugin.getLogger().warning("[Portal] No safe spot found - falling back to original portal");
                 }
             }
 
+            plugin.getLogger().info("[Teleport] Final spawn location: " + formatLoc(spawnLoc));
             teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
@@ -85,17 +90,17 @@ public class PortalTravelListener implements Listener {
             plugin.getLogger().info("[Teleport] Success=" + success + " | Player now at " + formatLoc(current));
 
             if (success) {
-                player.setNoDamageTicks(140); // 7 seconds of no damage
+                player.setNoDamageTicks(160); // 8 seconds of no damage
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
             } else {
                 player.teleportAsync(fallback);
-                player.sendMessage("§cCould not complete portal travel. Returned to original portal.");
             }
         });
     }
 
+    // ==================== Helper Methods ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
@@ -138,7 +143,7 @@ public class PortalTravelListener implements Listener {
         int x = target.getBlockX();
         int z = target.getBlockZ();
 
-        for (int y = Math.min(target.getBlockY() + 25, 150); y >= Math.max(target.getBlockY() - 25, 20); y--) {
+        for (int y = Math.min(target.getBlockY() + 30, 150); y >= Math.max(target.getBlockY() - 30, 20); y--) {
             if (isSafeSpot(world, x, y, z)) {
                 return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
             }
