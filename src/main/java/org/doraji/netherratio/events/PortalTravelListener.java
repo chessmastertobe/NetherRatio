@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v9 - Full Logging + Better Safe Spawn Loaded");
+        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal Handler v10 - Full Folia Compliant Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -46,26 +46,26 @@ public class PortalTravelListener implements Listener {
         }
 
         findSafeLocationAsync(customDest, safeDest -> {
-            plugin.getLogger().info("[Portal] Calculated safe dest: " + formatLoc(safeDest));
+            plugin.getLogger().info("[Portal] Calculated safe destination: " + formatLoc(safeDest));
 
             Location target = findNearestPortal(safeDest, 8);
 
+            Location spawnLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at " + formatLoc(target));
-                Location spawnLoc = target.clone().add(0, 1.2, 0); // Spawn higher
-                teleportWithRetry(player, spawnLoc, originalPortal, 4);
+                spawnLoc = target.clone().add(0, 1.8, 0); // Spawn higher in portal
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    plugin.getLogger().info("[Portal] Created new portal at " + formatLoc(safeDest));
-                    Location spawnLoc = safeDest.clone().add(0, 1.2, 0);
-                    teleportWithRetry(player, spawnLoc, originalPortal, 4);
+                    spawnLoc = safeDest.clone().add(0, 1.8, 0);
+                    plugin.getLogger().info("[Portal] Created new portal at " + formatLoc(spawnLoc));
                 } else {
-                    plugin.getLogger().warning("[Portal] No safe spot found!");
-                    player.teleportAsync(originalPortal);
-                    player.sendMessage("§cCould not find safe portal location. Returned to original.");
+                    spawnLoc = originalPortal;
+                    plugin.getLogger().warning("[Portal] No safe spot found - falling back to original portal");
                 }
             }
+
+            teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
 
@@ -73,23 +73,25 @@ public class PortalTravelListener implements Listener {
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
             event.setCancelled(true);
+            plugin.getLogger().info("[Portal] Cancelled vanilla portal creation");
         }
     }
 
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
-        plugin.getLogger().info("[Teleport] Attempt #" + (5 - attemptsLeft) + " → " + formatLoc(target));
+        plugin.getLogger().info("[Teleport] Attempt #" + (6 - attemptsLeft) + " → " + formatLoc(target));
 
         player.teleportAsync(target).thenAccept(success -> {
             Location current = player.getLocation();
             plugin.getLogger().info("[Teleport] Success=" + success + " | Player now at " + formatLoc(current));
 
             if (success) {
-                player.setNoDamageTicks(120); // 6 seconds of no damage
+                player.setNoDamageTicks(140); // 7 seconds of no damage
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
             } else {
                 player.teleportAsync(fallback);
+                player.sendMessage("§cCould not complete portal travel. Returned to original portal.");
             }
         });
     }
