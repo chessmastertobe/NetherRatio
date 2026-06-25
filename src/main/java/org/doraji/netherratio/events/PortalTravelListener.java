@@ -26,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Adjusted Centering Version");
+        plugin.getLogger().info("[NetherRatio] Fallback Disabled for Testing");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -48,14 +48,16 @@ public class PortalTravelListener implements Listener {
 
             Location spawnLoc;
             if (target != null) {
-                // Adjusted horizontal centering (was 0.5, now trying 0.3)
                 spawnLoc = target.clone().add(0.3, 0.85, 0.5);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
                     spawnLoc = safeDest.clone().add(0.3, 0.85, 0.5);
                 } else {
-                    spawnLoc = originalPortal;
+                    // === FALLBACK TEMPORARILY DISABLED ===
+                    // spawnLoc = originalPortal;
+                    plugin.getLogger().warning("[Portal] No safe spot and fallback disabled - doing nothing");
+                    return; // Do nothing for now
                 }
             }
 
@@ -70,7 +72,8 @@ public class PortalTravelListener implements Listener {
                 player.setNoDamageTicks(160);
                 player.setFallDistance(0);
             } else {
-                player.teleportAsync(fallback);
+                // Fallback disabled here too
+                plugin.getLogger().warning("[Teleport] Teleport failed and fallback is disabled");
             }
         });
     }
