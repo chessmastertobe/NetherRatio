@@ -2,6 +2,7 @@ package org.doraji.netherratio.events;
 
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -18,35 +19,67 @@ public class PortalTravelListener implements Listener {
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
-        plugin.getLogger().info("[NetherRatio Diagnostic] Maximum diagnostic listener loaded");
+        plugin.getLogger().info("[NetherRatio Diagnostic] Final comprehensive diagnostic loaded");
     }
 
-    // === TELEPORT & PORTAL EVENTS ===
+    // === CORE TELEPORT EVENTS ===
     @EventHandler(priority = EventPriority.MONITOR)
     public void onTeleport(PlayerTeleportEvent event) {
-        logTeleport("TELEPORT", event.getCause(), event.getPlayer(), event.getFrom(), event.getTo(), event.isCancelled());
+        logEvent("TELEPORT", event.getCause().toString(), event.getPlayer(), event.getFrom(), event.getTo(), event.isCancelled());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerPortal(PlayerPortalEvent event) {
-        logTeleport("PLAYER_PORTAL", event.getCause(), event.getPlayer(), event.getFrom(), event.getTo(), event.isCancelled());
+        logEvent("PLAYER_PORTAL", event.getCause().toString(), event.getPlayer(), event.getFrom(), event.getTo(), event.isCancelled());
     }
 
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onEntityPortal(EntityPortalEvent event) {
-        plugin.getLogger().info("[Diag] ENTITY_PORTAL | Thread: " + Thread.currentThread().getName() +
-            " | Entity: " + event.getEntity().getType() +
-            " | From: " + formatLoc(event.getFrom()) +
-            " | To: " + formatLoc(event.getTo()) +
-            " | Cancelled: " + event.isCancelled());
-    }
-
+    // === WORLD CHANGE ===
     @EventHandler(priority = EventPriority.MONITOR)
     public void onChangedWorld(PlayerChangedWorldEvent event) {
         plugin.getLogger().info("[Diag] CHANGED_WORLD | Thread: " + Thread.currentThread().getName() +
             " | Player: " + event.getPlayer().getName() +
             " | From: " + event.getFrom().getName() +
             " | To: " + event.getPlayer().getWorld().getName());
+    }
+
+    // === MOVE EVENT WITH WORLD CHANGE DETECTION ===
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onMove(PlayerMoveEvent event) {
+        Player player = event.getPlayer();
+        Location from = event.getFrom();
+        Location to = event.getTo();
+
+        if (to == null) return;
+
+        boolean inPortal = to.getBlock().getType() == Material.NETHER_PORTAL || 
+                          from.getBlock().getType() == Material.NETHER_PORTAL;
+
+        // Detect world change via move event
+        if (from.getWorld() != to.getWorld()) {
+            plugin.getLogger().info("[Diag] WORLD_CHANGE_VIA_MOVE | Thread: " + Thread.currentThread().getName() +
+                " | Player: " + player.getName() +
+                " | FromWorld: " + from.getWorld().getName() +
+                " | ToWorld: " + to.getWorld().getName() +
+                " | Loc: " + formatLoc(to));
+        }
+
+        if (inPortal) {
+            long now = System.currentTimeMillis();
+            if (now - lastMoveLog > 200) {
+                plugin.getLogger().info("[Diag] MOVE_PORTAL | Thread: " + Thread.currentThread().getName() +
+                    " | Player: " + player.getName() +
+                    " | Block: " + to.getBlock().getType() +
+                    " | Loc: " + formatLoc(to));
+                lastMoveLog = now;
+            }
+        }
+    }
+
+    // === OTHER PORTAL-RELATED EVENTS ===
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntityPortal(EntityPortalEvent event) {
+        plugin.getLogger().info("[Diag] ENTITY_PORTAL | Thread: " + Thread.currentThread().getName() +
+            " | Entity: " + event.getEntity().getType());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -56,30 +89,7 @@ public class PortalTravelListener implements Listener {
             " | World: " + event.getWorld().getName());
     }
 
-    // === MOVE EVENT (throttled) ===
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        Location to = event.getTo();
-
-        if (to == null) return;
-
-        boolean wasInPortal = event.getFrom().getBlock().getType() == Material.NETHER_PORTAL;
-        boolean isInPortal = to.getBlock().getType() == Material.NETHER_PORTAL;
-
-        if (wasInPortal || isInPortal) {
-            long now = System.currentTimeMillis();
-            if (now - lastMoveLog > 250) {
-                plugin.getLogger().info("[Diag] MOVE | Thread: " + Thread.currentThread().getName() +
-                    " | Player: " + player.getName() +
-                    " | Block: " + to.getBlock().getType() +
-                    " | Loc: " + formatLoc(to));
-                lastMoveLog = now;
-            }
-        }
-    }
-
-    private void logTeleport(String type, PlayerTeleportEvent.TeleportCause cause, Player player, Location from, Location to, boolean cancelled) {
+    private void logEvent(String type, String cause, Player player, Location from, Location to, boolean cancelled) {
         plugin.getLogger().info("[Diag] " + type + " | Thread: " + Thread.currentThread().getName() +
             " | Cause: " + cause +
             " | Player: " + player.getName() +
