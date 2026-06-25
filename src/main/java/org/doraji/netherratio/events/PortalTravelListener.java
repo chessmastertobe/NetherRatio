@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal Handler v5 (with Teleport Retry) Loaded");
+        plugin.getLogger().info("[NetherRatio] Safe 2:1 Portal Handler v6 (Improved Safe Spawn) Loaded");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -34,18 +34,17 @@ public class PortalTravelListener implements Listener {
         Location to = event.getTo();
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        Location originalPortal = event.getFrom().clone(); // Safe fallback
+        Location originalPortal = event.getFrom().clone();
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
             player.teleportAsync(originalPortal);
-            player.sendMessage("§cPortal error. Returned to original portal.");
             return;
         }
 
-        // Safe location search on correct thread
         findSafeLocationAsync(customDest, safeDest -> {
             Location target = findNearestPortal(safeDest, 8);
+
             if (target == null) {
                 target = safeDest;
                 if (isSafeSpot(target.getWorld(), target.getBlockX(), target.getBlockY(), target.getBlockZ())) {
@@ -53,8 +52,9 @@ public class PortalTravelListener implements Listener {
                 }
             }
 
-            // Perform teleport with retry
-            teleportWithRetry(player, target, originalPortal, 3); // 3 attempts
+            // Improved safe spawn - spawn player 1 block above the portal floor
+            Location finalSpawn = target.clone().add(0, 1, 0);
+            teleportWithRetry(player, finalSpawn, originalPortal, 4);
         });
     }
 
@@ -65,21 +65,21 @@ public class PortalTravelListener implements Listener {
         }
     }
 
-    // ==================== Teleport with Retry ====================
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
-            if (!success && attemptsLeft > 0) {
-                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
-                    teleportWithRetry(player, target, fallback, attemptsLeft - 1);
-                }, 2L); // Retry after 2 ticks
-            } else if (!success) {
+            if (success) {
+                player.setNoDamageTicks(60); // 3 seconds of no damage
+            } else if (attemptsLeft > 0) {
+                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
+                    teleportWithRetry(player, target, fallback, attemptsLeft - 1), 2L);
+            } else {
                 player.teleportAsync(fallback);
                 player.sendMessage("§cCould not complete portal travel. Returned to original portal.");
             }
         });
     }
 
-    // ==================== Safe Location (RTP Style) ====================
+    // === Rest of the methods (same as last version) ===
     private void findSafeLocationAsync(Location target, Consumer<Location> callback) {
         World world = target.getWorld();
         if (world == null) {
@@ -88,8 +88,7 @@ public class PortalTravelListener implements Listener {
         }
 
         Bukkit.getRegionScheduler().execute(plugin, world, target.getBlockX() >> 4, target.getBlockZ() >> 4, () -> {
-            Location safe = findSafeLocationSync(target);
-            callback.accept(safe);
+            callback.accept(findSafeLocationSync(target));
         });
     }
 
@@ -114,6 +113,7 @@ public class PortalTravelListener implements Listener {
     }
 
     private Location findNearestPortal(Location center, int radius) {
+        // ... same as before
         World world = center.getWorld();
         int cx = center.getBlockX();
         int cz = center.getBlockZ();
@@ -131,6 +131,7 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createBasicPortal(World world, int x, int y, int z) {
+        // same as before
         for (int dx = -1; dx <= 2; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
@@ -147,6 +148,7 @@ public class PortalTravelListener implements Listener {
     }
 
     private Location calculateCustomDestination(Location from) {
+        // same as before
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
