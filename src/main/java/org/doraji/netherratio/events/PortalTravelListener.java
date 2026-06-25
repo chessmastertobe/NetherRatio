@@ -11,7 +11,8 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerPortalEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 
 public class PortalTravelListener implements Listener {
 
@@ -21,33 +22,31 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("§a[NetherRatio] Listener active - Safe landing mode");
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerMove(PlayerMoveEvent event) {
-        Player player = event.getPlayer();
-        Location to = event.getTo();
-        if (to == null) return;
-
-        if (to.getBlockX() == event.getFrom().getBlockX() &&
-            to.getBlockY() == event.getFrom().getBlockY() &&
-            to.getBlockZ() == event.getFrom().getBlockZ()) {
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerPortal(PlayerPortalEvent event) {
+        if (event.getCause() != PlayerTeleportEvent.TeleportCause.NETHER_PORTAL) {
             return;
         }
 
-        if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
+        Player player = event.getPlayer();
+        Location from = event.getFrom();
 
-        plugin.getLogger().info("§e[NetherRatio] Portal detected for " + player.getName());
-
-        Location newTo = calculateSafeDestination(to);
-        if (newTo != null) {
-            plugin.getLogger().info("§a[NetherRatio] Teleporting to safe spot: " + formatLoc(newTo));
-            player.teleportAsync(newTo);
+        Location destination = calculateDestination(from);
+        if (destination == null) {
+            return;
         }
+
+        Location safeDestination = findSafeLocation(destination);
+
+        // Create portal if one doesn't exist nearby
+        ensurePortalExists(safeDestination);
+
+        event.setTo(safeDestination);
     }
 
-    private Location calculateSafeDestination(Location from) {
+    private Location calculateDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
 
@@ -77,27 +76,76 @@ public class PortalTravelListener implements Listener {
             newZ = clamped[1];
         }
 
-        Location base = new Location(toWorld, newX, 64, newZ, from.getYaw(), from.getPitch());
-        return findSafeY(base);
+        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
     }
 
-    private Location findSafeY(Location loc) {
-        World world = loc.getWorld();
-        int x = loc.getBlockX();
-        int z = loc.getBlockZ();
+    private Location findSafeLocation(Location target) {
+        World world = target.getWorld();
+        if (world == null) return target;
 
-        for (int y = 80; y >= 40; y--) {
-            Block feet = world.getBlockAt(x, y, z);
-            Block head = world.getBlockAt(x, y + 1, z);
-            if (feet.getType().isAir() && head.getType().isAir()) {
-                return new Location(world, x + 0.5, y, z + 0.5, loc.getYaw(), loc.getPitch());
+        int x = target.getBlockX();
+        int z = target.getBlockZ();
+
+        for (int y = Math.min(target.getBlockY() + 8, 120); y >= Math.max(target.getBlockY() - 8, 30); y--) {
+            if (isSafeSpot(world, x, y, z)) {
+                return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
             }
         }
-        return loc; // fallback
+        return target;
     }
 
-    private String formatLoc(Location loc) {
-        if (loc == null || loc.getWorld() == null) return "null";
-        return loc.getWorld().getName() + " (" + loc.getBlockX() + ", " + loc.getBlockY() + ", " + loc.getBlockZ() + ")";
+    private boolean isSafeSpot(World world, int x, int y, int z) {
+        Block feet = world.getBlockAt(x, y, z);
+        Block head = world.getBlockAt(x, y + 1, z);
+        Block below = world.getBlockAt(x, y - 1, z);
+        return feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid();
+    }
+
+    /**
+     * Ensures a portal exists near the destination.
+     * Creates a basic portal if none is found.
+     */
+    private void ensurePortalExists(Location location) {
+        World world = location.getWorld();
+        if (world == null) return;
+
+        int x = location.getBlockX();
+        int z = location.getBlockZ();
+        int y = location.getBlockY();
+
+        // Check if a portal already exists nearby
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                for (int dy = -2; dy <= 5; dy++) {
+                    if (world.getBlockAt(x + dx, y + dy, z + dz).getType() == Material.NETHER_PORTAL) {
+                        return; // Portal already exists
+                    }
+                }
+            }
+        }
+
+        // No portal found — create a basic one
+        createBasicPortal(world, x, y, z);
+    }
+
+    private void createBasicPortal(World world, int x, int y, int z) {
+        // Create obsidian frame (simple 4x5 portal)
+        for (int dx = -1; dx <= 2; dx++) {
+            for (int dy = 0; dy <= 4; dy++) {
+                Block block = world.getBlockAt(x + dx, y + dy, z);
+                if (dy == 0 || dy == 4 || dx == -1 || dx == 2) {
+                    if (block.getType().isAir()) {
+                        block.setType(Material.OBSIDIAN);
+                    }
+                }
+            }
+        }
+
+        // Fill with portal blocks
+        for (int dy = 1; dy <= 3; dy++) {
+            for (int dx = 0; dx <= 1; dx++) {
+                world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
+            }
+        }
     }
 }
