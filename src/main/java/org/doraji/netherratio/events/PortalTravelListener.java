@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v15 - Complete File with Max Logging");
+        plugin.getLogger().info("[NetherRatio] Debug v17 - TELEPORT 10 BLOCKS FORWARD TEST");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -36,40 +36,45 @@ public class PortalTravelListener implements Listener {
 
         Location originalPortal = event.getFrom().clone();
 
-        plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL ===");
+        plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL (10 BLOCK TEST) ===");
         plugin.getLogger().info("[Portal] Player: " + player.getName());
         plugin.getLogger().info("[Portal] Entry: " + formatLoc(to));
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null) {
-            plugin.getLogger().warning("[Portal] Failed to calculate destination");
             player.teleportAsync(originalPortal);
             return;
         }
 
-        plugin.getLogger().info("[Portal] Calculated 2:1 destination: " + formatLoc(customDest));
-
         findSafeLocationAsync(customDest, safeDest -> {
-            plugin.getLogger().info("[Portal] Safe location search result: " + formatLoc(safeDest));
+            plugin.getLogger().info("[Portal] Calculated safe dest: " + formatLoc(safeDest));
 
             Location target = findNearestPortal(safeDest, 8);
 
-            Location spawnLoc;
+            Location baseLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                spawnLoc = target.clone().add(0.5, 2.2, 0.5);   // Middle of portal
+                baseLoc = target.clone();
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.5, 2.2, 0.5);
-                    plugin.getLogger().info("[Portal] Created new portal - spawning at: " + formatLoc(spawnLoc));
+                    baseLoc = safeDest.clone();
+                    plugin.getLogger().info("[Portal] Created new portal at: " + formatLoc(baseLoc));
                 } else {
-                    spawnLoc = originalPortal;
-                    plugin.getLogger().warning("[Portal] No safe spot - falling back to original portal");
+                    baseLoc = originalPortal;
+                    plugin.getLogger().warning("[Portal] No safe spot - falling back");
                 }
             }
 
-            plugin.getLogger().info("[Teleport] FINAL SPAWN LOCATION: " + formatLoc(spawnLoc));
+            // === NEW: Move 10 blocks forward from the portal ===
+            Location direction = player.getLocation().clone();
+            double yaw = Math.toRadians(direction.getYaw());
+            double xOffset = -Math.sin(yaw) * 10;
+            double zOffset = Math.cos(yaw) * 10;
+
+            Location spawnLoc = baseLoc.clone().add(xOffset, 2, zOffset);
+            plugin.getLogger().info("[Teleport] FINAL SPAWN (10 blocks forward): " + formatLoc(spawnLoc));
+
             teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
@@ -78,7 +83,6 @@ public class PortalTravelListener implements Listener {
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
             event.setCancelled(true);
-            plugin.getLogger().info("[Portal] Cancelled vanilla portal creation");
         }
     }
 
@@ -101,6 +105,7 @@ public class PortalTravelListener implements Listener {
         });
     }
 
+    // ==================== Helper Methods ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
