@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Clean Vanilla-Like Version (No Platform)");
+        plugin.getLogger().info("[NetherRatio] DEBUG MODE - Always Send Player");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -45,25 +45,31 @@ public class PortalTravelListener implements Listener {
         Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
             dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
 
-            // 1. Try to find an existing portal first (wide search)
+            // 1. Try to find existing portal
             Location existing = findNearestPortal(dest, 40);
             if (existing != null) {
                 Location spawn = existing.clone().add(0.5, 0.85, 0.5);
+                plugin.getLogger().info("[DEBUG] Found existing portal at " + format(spawn));
                 doTeleport(player, spawn);
                 return;
             }
 
-            // 2. No existing portal → try to find a safe spot and create one
-            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 60, safeLoc -> {
+            // 2. No existing portal → try safe location
+            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 50, safeLoc -> {
+                Location finalSpawn;
+
                 if (safeLoc != null) {
                     createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                    Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
-                    doTeleport(player, spawn);
+                    finalSpawn = safeLoc.clone().add(0.5, 0.85, 0.5);
+                    plugin.getLogger().info("[DEBUG] Created portal at safe location: " + format(finalSpawn));
                 } else {
-                    // 3. Last resort → go back to the original portal
-                    plugin.getLogger().warning("[Portal] Could not find safe location after many attempts. Falling back to original portal.");
-                    player.teleportAsync(original);
+                    // Still send the player even if not perfect
+                    finalSpawn = dest.clone().add(0.5, 40, 0.5); // High but safe-ish Y
+                    createBasicPortal(dest.getWorld(), dest.getBlockX(), (int)finalSpawn.getY(), dest.getBlockZ());
+                    plugin.getLogger().warning("[DEBUG] Could not find safe spot. Sending player to higher location anyway.");
                 }
+
+                doTeleport(player, finalSpawn);
             });
         });
     }
@@ -158,5 +164,10 @@ public class PortalTravelListener implements Listener {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
+    }
+
+    private String format(Location loc) {
+        if (loc == null || loc.getWorld() == null) return "null";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
     }
 }
