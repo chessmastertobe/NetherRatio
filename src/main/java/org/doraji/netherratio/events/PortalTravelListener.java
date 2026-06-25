@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v17 - TELEPORT 10 BLOCKS FORWARD TEST");
+        plugin.getLogger().info("[NetherRatio] Final Version - Spawn Inside Portal + Max Logging");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -36,7 +36,7 @@ public class PortalTravelListener implements Listener {
 
         Location originalPortal = event.getFrom().clone();
 
-        plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL (10 BLOCK TEST) ===");
+        plugin.getLogger().info("[Portal] === PLAYER ENTERED PORTAL ===");
         plugin.getLogger().info("[Portal] Player: " + player.getName());
         plugin.getLogger().info("[Portal] Entry: " + formatLoc(to));
 
@@ -51,30 +51,22 @@ public class PortalTravelListener implements Listener {
 
             Location target = findNearestPortal(safeDest, 8);
 
-            Location baseLoc;
+            Location spawnLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                baseLoc = target.clone();
+                spawnLoc = target.clone().add(0.5, 1.4, 0.5);   // Spawn inside the portal
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    baseLoc = safeDest.clone();
-                    plugin.getLogger().info("[Portal] Created new portal at: " + formatLoc(baseLoc));
+                    spawnLoc = safeDest.clone().add(0.5, 1.4, 0.5);
+                    plugin.getLogger().info("[Portal] Created new portal - spawning inside at: " + formatLoc(spawnLoc));
                 } else {
-                    baseLoc = originalPortal;
+                    spawnLoc = originalPortal;
                     plugin.getLogger().warning("[Portal] No safe spot - falling back");
                 }
             }
 
-            // === NEW: Move 10 blocks forward from the portal ===
-            Location direction = player.getLocation().clone();
-            double yaw = Math.toRadians(direction.getYaw());
-            double xOffset = -Math.sin(yaw) * 10;
-            double zOffset = Math.cos(yaw) * 10;
-
-            Location spawnLoc = baseLoc.clone().add(xOffset, 2, zOffset);
-            plugin.getLogger().info("[Teleport] FINAL SPAWN (10 blocks forward): " + formatLoc(spawnLoc));
-
+            plugin.getLogger().info("[Teleport] FINAL SPAWN: " + formatLoc(spawnLoc));
             teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
