@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v14 - Spawn Inside Portal + Max Safety");
+        plugin.getLogger().info("[NetherRatio] Debug v16 - Fixed Spawn (No Safety Check)");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -55,13 +55,13 @@ public class PortalTravelListener implements Listener {
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
                 spawnLoc = target.clone();
-                spawnLoc.setY(target.getY() + 1.0);           // <-- Fixed spawn (was .add(0, 1.6, 0))
+                spawnLoc.setY(target.getY() + 1.0);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
                     spawnLoc = safeDest.clone();
-                    spawnLoc.setY(safeDest.getY() + 1.0);     // <-- Fixed spawn (was .add(0, 1.6, 0))
-                    plugin.getLogger().info("[Portal] Created new portal - spawning inside at: " + formatLoc(spawnLoc));
+                    spawnLoc.setY(safeDest.getY() + 1.0);
+                    plugin.getLogger().info("[Portal] Created new portal - spawning at: " + formatLoc(spawnLoc));
                 } else {
                     spawnLoc = originalPortal;
                     plugin.getLogger().warning("[Portal] No safe spot - falling back");
@@ -89,6 +89,7 @@ public class PortalTravelListener implements Listener {
 
             if (success) {
                 player.setNoDamageTicks(200);
+                player.setFallDistance(0f);
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
@@ -98,7 +99,7 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== Helper Methods ====================
+    // ==================== Helper Methods (unchanged) ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
