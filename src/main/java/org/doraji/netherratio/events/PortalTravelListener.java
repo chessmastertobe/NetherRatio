@@ -18,22 +18,25 @@ public class PortalTravelListener implements Listener {
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
-        plugin.getLogger().info("[NetherRatio Diagnostic] Diagnostic listener loaded");
+        plugin.getLogger().info("[NetherRatio Diagnostic] Diagnostic listener with thread logging loaded");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onAnyTeleport(PlayerTeleportEvent event) {
-        Player player = event.getPlayer();
-        plugin.getLogger().info("[Diag] TELEPORT | Cause: " + event.getCause() + 
-            " | Player: " + player.getName() +
-            " | From: " + formatLoc(event.getFrom()) + 
+        String threadName = Thread.currentThread().getName();
+        plugin.getLogger().info("[Diag] TELEPORT | Thread: " + threadName +
+            " | Cause: " + event.getCause() +
+            " | Player: " + event.getPlayer().getName() +
+            " | From: " + formatLoc(event.getFrom()) +
             " | To: " + formatLoc(event.getTo()) +
             " | Cancelled: " + event.isCancelled());
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerPortal(PlayerPortalEvent event) {
-        plugin.getLogger().info("[Diag] PLAYER_PORTAL_EVENT | Cause: " + event.getCause() +
+        String threadName = Thread.currentThread().getName();
+        plugin.getLogger().info("[Diag] PLAYER_PORTAL | Thread: " + threadName +
+            " | Cause: " + event.getCause() +
             " | Player: " + event.getPlayer().getName() +
             " | From: " + formatLoc(event.getFrom()) +
             " | To: " + formatLoc(event.getTo()) +
@@ -47,13 +50,14 @@ public class PortalTravelListener implements Listener {
 
         if (to == null) return;
 
-        // Only log when near or inside Nether portals (to avoid spam)
-        if (to.getBlock().getType() == Material.NETHER_PORTAL || 
+        if (to.getBlock().getType() == Material.NETHER_PORTAL ||
             event.getFrom().getBlock().getType() == Material.NETHER_PORTAL) {
 
             long now = System.currentTimeMillis();
-            if (now - lastLogTime > 200) { // Throttle logging
-                plugin.getLogger().info("[Diag] MOVE near portal | Player: " + player.getName() +
+            if (now - lastLogTime > 300) {
+                String threadName = Thread.currentThread().getName();
+                plugin.getLogger().info("[Diag] MOVE near portal | Thread: " + threadName +
+                    " | Player: " + player.getName() +
                     " | Block: " + to.getBlock().getType() +
                     " | Location: " + formatLoc(to));
                 lastLogTime = now;
