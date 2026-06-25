@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v16 - Fixed Spawn (No Safety Check)");
+        plugin.getLogger().info("[NetherRatio] Debug v14 - Smart Portal Spawn + Max Logging");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -54,13 +54,12 @@ public class PortalTravelListener implements Listener {
             Location spawnLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                spawnLoc = target.clone();
-                spawnLoc.setY(target.getY() + 1.0);
+                // Smart spawn: middle of the portal
+                spawnLoc = target.clone().add(0.5, 1.5, 0.5);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone();
-                    spawnLoc.setY(safeDest.getY() + 1.0);
+                    spawnLoc = safeDest.clone().add(0.5, 1.5, 0.5);
                     plugin.getLogger().info("[Portal] Created new portal - spawning at: " + formatLoc(spawnLoc));
                 } else {
                     spawnLoc = originalPortal;
@@ -89,7 +88,7 @@ public class PortalTravelListener implements Listener {
 
             if (success) {
                 player.setNoDamageTicks(200);
-                player.setFallDistance(0f);
+                player.setFallDistance(0);
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
@@ -99,7 +98,7 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== Helper Methods (unchanged) ====================
+    // ==================== Helper Methods ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
