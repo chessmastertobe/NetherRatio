@@ -25,7 +25,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Strict Folia + Your RTP Logic");
+        plugin.getLogger().info("[NetherRatio] Clean Vanilla-Like Version (No Platform)");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -45,22 +45,24 @@ public class PortalTravelListener implements Listener {
         Bukkit.getRegionScheduler().execute(plugin, dest.getWorld(), 
             dest.getBlockX() >> 4, dest.getBlockZ() >> 4, () -> {
 
-            Location existing = findNearestPortal(dest, 20);
+            // 1. Try to find an existing portal first (wide search)
+            Location existing = findNearestPortal(dest, 40);
             if (existing != null) {
                 Location spawn = existing.clone().add(0.5, 0.85, 0.5);
                 doTeleport(player, spawn);
                 return;
             }
 
-            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 40, safeLoc -> {
+            // 2. No existing portal → try to find a safe spot and create one
+            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 60, safeLoc -> {
                 if (safeLoc != null) {
                     createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     Location spawn = safeLoc.clone().add(0.5, 0.85, 0.5);
                     doTeleport(player, spawn);
                 } else {
-                    Location high = dest.clone().add(0, 25, 0);
-                    createSafetyPlatform(high);
-                    doTeleport(player, high);
+                    // 3. Last resort → go back to the original portal
+                    plugin.getLogger().warning("[Portal] Could not find safe location after many attempts. Falling back to original portal.");
+                    player.teleportAsync(original);
                 }
             });
         });
@@ -86,7 +88,7 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        int y = 40 + (int)(Math.random() * 70);
+        int y = 35 + (int)(Math.random() * 90);
 
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
             Block feet = world.getBlockAt(x, y, z);
@@ -132,7 +134,7 @@ public class PortalTravelListener implements Listener {
 
         for (int x = center.getBlockX() - radius; x <= center.getBlockX() + radius; x++) {
             for (int z = center.getBlockZ() - radius; z <= center.getBlockZ() + radius; z++) {
-                for (int y = center.getBlockY() - 12; y <= center.getBlockY() + 25; y++) {
+                for (int y = center.getBlockY() - 15; y <= center.getBlockY() + 35; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
                         return new Location(world, x, y, z);
                     }
@@ -154,16 +156,6 @@ public class PortalTravelListener implements Listener {
         for (int dy = 1; dy <= 3; dy++) {
             for (int dx = 0; dx <= 1; dx++) {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
-            }
-        }
-    }
-
-    private void createSafetyPlatform(Location loc) {
-        World world = loc.getWorld();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                world.getBlockAt(loc.getBlockX() + dx, loc.getBlockY() - 1, loc.getBlockZ() + dz)
-                     .setType(Material.OBSIDIAN);
             }
         }
     }
