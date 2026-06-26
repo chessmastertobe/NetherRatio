@@ -33,6 +33,7 @@ public class PortalTravelListener implements Listener {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
         plugin.getLogger().info("[NetherRatio] Stable + Retry Loop vs Folia + Per-Destination Bounds + Vanilla Cancel");
+        plugin.getLogger().warning("=== FINAL BUILD V11 - ROOF BLOCKED + SAFE FALLBACK ACTIVE ==="); // LOUD CONFIRMATION
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -73,13 +74,13 @@ public class PortalTravelListener implements Listener {
 
         Location customDest = calculateCustomDestination(to);
 
-        // HARD SAFETY NET - block any dangerous high Y teleport
+        // ULTIMATE SAFETY - block any high Y
         boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
-        plugin.getLogger().info("[NetherRatio] Debug: Player=" + player.getName() + " destY=" + customDest.getY() + " allowRoof=" + allowNetherRoof);
+        plugin.getLogger().info("[NetherRatio] DEBUG - Player: " + player.getName() + " | DestY: " + customDest.getY() + " | AllowRoof: " + allowNetherRoof);
         if (!allowNetherRoof && customDest.getWorld().getEnvironment() == World.Environment.NETHER && customDest.getY() > 118) {
-            plugin.getLogger().warning("[NetherRatio] BLOCKED dangerous Nether roof teleport for " + player.getName());
+            plugin.getLogger().warning("[NetherRatio] ULTIMATE BLOCK - Sent back to avoid roof");
+            player.sendMessage("§cUnsafe portal (roof) blocked. Returned safely.");
             player.teleportAsync(originalPortal);
-            player.sendMessage("§cNether roof portals are disabled.");
             return;
         }
 
@@ -104,11 +105,10 @@ public class PortalTravelListener implements Listener {
                         teleportWithRetry(player, safeLoc.clone().add(0.5, 1.3, 0.5), originalPortal, 6);
                     }, 8L);
                 } else {
-                    int highY = (customDest.getWorld().getEnvironment() == World.Environment.NETHER && !allowNetherRoof) ? 90 : customDest.getBlockY() + 60;
-                    createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
-                    Bukkit.getRegionScheduler().runDelayed(plugin, customDest.getWorld(), customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, t -> {
-                        teleportWithRetry(player, new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.6, customDest.getZ() + 0.5), originalPortal, 6);
-                    }, 8L);
+                    // ULTIMATE FALLBACK - never send to bad location
+                    plugin.getLogger().warning("[NetherRatio] Safe location failed - sending back safely");
+                    player.teleportAsync(originalPortal);
+                    player.sendMessage("§cSafe portal destination not found. Returned to start.");
                 }
             });
         });
