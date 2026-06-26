@@ -35,16 +35,15 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Fixed version - Full custom logic in PlayerMoveEvent + PortalCreateEvent cancel");
+        plugin.getLogger().info("[NetherRatio] Race-winning version (original structure + all fixes)");
     }
 
-    // ==================== DETECT PORTAL ENTRY ====================
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // Protection against re-trigger after our teleport
+        // Tag protection
         if (justTeleportedByPlugin.containsKey(uuid)) {
             long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
             if (timeSince < 6000) {
@@ -66,18 +65,23 @@ public class PortalTravelListener implements Listener {
         Location to = event.getTo();
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
+        // Interrupt vanilla as early as possible
+        player.setPortalCooldown(300);
+
         lastPortalUse.put(uuid, now);
 
         Location customDest = calculateCustomDestination(to);
         if (customDest == null || !isWithinConfiguredBounds(customDest)) {
-            player.teleportAsync(event.getFrom().clone());
             lastPortalUse.remove(uuid);
+            player.teleportAsync(event.getFrom().clone());
             return;
         }
 
+        // Debug log - check this to confirm 2:1 is working
+        plugin.getLogger().info("[NetherRatio] Custom 2:1 dest → X:" + customDest.getBlockX() + " Z:" + customDest.getBlockZ());
+
         int searchRadius = (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 64 : 16;
 
-        // Do the real work on the target region thread
         Bukkit.getRegionScheduler().execute(plugin, customDest.getWorld(),
                 customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, () -> {
 
@@ -102,7 +106,6 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== CANCEL VANILLA 8:1 CREATION ====================
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() != PortalCreateEvent.CreateReason.NETHER_PAIR) return;
@@ -110,15 +113,12 @@ public class PortalTravelListener implements Listener {
         Entity entity = event.getEntity();
         if (!(entity instanceof Player player)) return;
 
-        UUID uuid = player.getUniqueId();
-        if (!lastPortalUse.containsKey(uuid)) return;
-
-        // Cancel vanilla creation at 8:1
-        event.setCancelled(true);
-        lastPortalUse.remove(uuid); // Clean up
+        if (lastPortalUse.containsKey(player.getUniqueId())) {
+            event.setCancelled(true);
+            lastPortalUse.remove(player.getUniqueId());
+        }
     }
 
-    // ==================== TELEPORT WITH RETRY ====================
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
@@ -234,38 +234,43 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createProperPortal(World world, int x, int y, int z) {
-        for (int dx = -2; dx <= 3; dx++) {
-            for (int dy = -1; dy <= 6; dy++) {
-                for (int dz = -2; dz <= 2; dz++) {
+        // Clear area
+        for (int dx = -3; dx <= 4; dx++) {
+            for (int dy = -2; dy <= 7; dy++) {
+                for (int dz = -3; dz <= 3; dz++) {
                     world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
                 }
             }
         }
 
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 4; dy++) {
-                Block block = world.getBlockAt(x + dx, y + dy, z);
-                if (dy == 0 || dy == 4) {
-                    block.setType(Material.OBSIDIAN);
-                } else {
-                    BlockData data = Material.NETHER_PORTAL.createBlockData();
-                    if (data instanceof Orientable orientable) {
-                        orientable.setAxis(Axis.X);
-                    }
-                    block.setBlockData(data);
-                }
-            }
+        // Bottom + top obsidian
+        for (int dx = -1; dx <= 2; dx++) {
+            world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
+            world.getBlockAt(x + dx, y + 5, z).setType(Material.OBSIDIAN);
         }
 
-        for (int dy = 0; dy <= 4; dy++) {
+        // Side pillars
+        for (int dy = 0; dy <= 5; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
+        }
+
+        // Portal blocks with correct axis
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 1; dy <= 4; dy++) {
+                Block block = world.getBlockAt(x + dx, y + dy, z);
+                BlockData data = Material.NETHER_PORTAL.createBlockData();
+                if (data instanceof Orientable orientable) {
+                    orientable.setAxis(Axis.X);
+                }
+                block.setBlockData(data);
+            }
         }
     }
 
     private void createEmergencyHighPortal(World world, int x, int y, int z) {
         createProperPortal(world, x, y, z);
-        for (int dx = 0; dx <= 1; dx++) {
+        for (int dx = -1; dx <= 2; dx++) {
             for (int dz = -2; dz <= 2; dz++) {
                 world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
             }
