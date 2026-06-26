@@ -17,6 +17,8 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class PortalTravelListener implements Listener {
@@ -24,17 +26,41 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
+    // Thread-safe protection (fixes the crazy loop)
+    private final ConcurrentHashMap<UUID, Long> lastPortalUse = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> justTeleportedByPlugin = new ConcurrentHashMap<>();
+
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v15 - Strengthened (your logic + critical fixes)");
+        plugin.getLogger().info("[NetherRatio] Debug v15 - Loop protection added");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
         Location to = event.getTo();
+
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
+
+        // === LOOP PROTECTION ===
+        if (justTeleportedByPlugin.containsKey(uuid)) {
+            long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
+            if (timeSince < 8000) {
+                if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
+                    return; // Still inside our newly created portal → skip
+                } else {
+                    justTeleportedByPlugin.remove(uuid);
+                }
+            } else {
+                justTeleportedByPlugin.remove(uuid);
+            }
+        }
+
+        if (lastPortalUse.containsKey(uuid) && System.currentTimeMillis() - lastPortalUse.get(uuid) < 4000) {
+            return;
+        }
 
         Location originalPortal = event.getFrom().clone();
 
@@ -43,8 +69,9 @@ public class PortalTravelListener implements Listener {
 
         // Interrupt vanilla early
         player.setPortalCooldown(200);
+        lastPortalUse.put(uuid, System.currentTimeMillis());
 
-        // Your delay idea to let Folia settle
+        // Your original delay idea
         Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
             processPortalTeleport(player, originalPortal, to);
         }, 5L);
@@ -55,6 +82,7 @@ public class PortalTravelListener implements Listener {
         if (customDest == null) {
             plugin.getLogger().warning("[Portal] Failed to calculate destination");
             player.teleportAsync(originalPortal);
+            lastPortalUse.remove(player.getUniqueId());
             return;
         }
 
@@ -96,9 +124,11 @@ public class PortalTravelListener implements Listener {
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
+                // Set protection tag so we don't re-trigger on the new portal
+                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
-                plugin.getLogger().info("[Teleport] Success at attempt " + (6 - attemptsLeft));
+                plugin.getLogger().info("[Teleport] Success");
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
@@ -189,34 +219,20 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createBasicPortal(World world, int x, int y, int z) {
-        // Bottom obsidian
+        // Bottom
         for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
         }
-        // Side pillars
+        // Sides
         for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
         }
-        // Top obsidian
+        // Top
         for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN);
         }
         // Portal blocks with correct axis
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 1; dy <= 3; dy++) {
-                Block block = world.getBlockAt(x + dx, y + dy, z);
-                BlockData data = Material.NETHER_PORTAL.createBlockData();
-                if (data instanceof Orientable orientable) {
-                    orientable.setAxis(org.bukkit.Axis.X);
-                }
-                block.setBlockData(data);
-            }
-        }
-    }
-
-    private String formatLoc(Location loc) {
-        if (loc == null || loc.getWorld() == null) return "null";
-        return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
-    }
-}
+                Block block =
