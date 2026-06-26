@@ -24,7 +24,7 @@ public class PortalTravelListener implements Listener {
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
-        plugin.getLogger().info("[NetherRatio] ULTRA MINIMAL - Hardcoded destination test");
+        plugin.getLogger().info("[NetherRatio] MINIMAL RACE WINNER v2");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -41,26 +41,26 @@ public class PortalTravelListener implements Listener {
         UUID uuid = player.getUniqueId();
 
         Location to = event.getTo();
-        if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
+        if (to == null) return;
+        if (to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        // Mark immediately to help win the race
+        // Mark as handled immediately
         justTeleportedByPlugin.put(uuid, System.currentTimeMillis());
 
-        plugin.getLogger().info("[RACE] DETECTED portal entry: " + player.getName());
+        plugin.getLogger().info("[RACE] DETECTED - Player entered portal: " + player.getName());
 
         // === HARDCODED TEST DESTINATION ===
         World targetWorld = Bukkit.getWorld("world");
         Location hardcodedDest = new Location(targetWorld, 10010.483, 84, -288.528);
 
         if (targetWorld == null) {
-            plugin.getLogger().severe("[RACE] Target world 'world' not found!");
+            plugin.getLogger().severe("[RACE] Target world not found!");
             return;
         }
 
-        // Attempt to win the race by teleporting as fast as possible
         player.teleportAsync(hardcodedDest).thenAccept(success -> {
             if (success) {
-                plugin.getLogger().info("[RACE] SUCCESS - Teleported using our code");
+                plugin.getLogger().info("[RACE] SUCCESS - We won the race");
                 player.playSound(hardcodedDest, Sound.BLOCK_PORTAL_TRAVEL, 0.8f, 1.0f);
             } else {
                 plugin.getLogger().warning("[RACE] Teleport failed");
