@@ -3,13 +3,10 @@ package org.doraji.netherratio.events;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.World;
-import org.bukkit.Axis;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Orientable;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -20,8 +17,6 @@ import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
 
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class PortalTravelListener implements Listener {
@@ -29,152 +24,86 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
-    private final ConcurrentHashMap<UUID, Long> lastPortalUse = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Long> justTeleportedByPlugin = new ConcurrentHashMap<>();
-
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Race-winning version (original structure + all fixes)");
+        plugin.getLogger().info("[NetherRatio] Debug v15 - Strengthened (your logic + critical fixes)");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
-        UUID uuid = player.getUniqueId();
-
-        // Tag protection
-        if (justTeleportedByPlugin.containsKey(uuid)) {
-            long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
-            if (timeSince < 6000) {
-                if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
-                    return;
-                } else {
-                    justTeleportedByPlugin.remove(uuid);
-                }
-            } else {
-                justTeleportedByPlugin.remove(uuid);
-            }
-        }
-
-        long now = System.currentTimeMillis();
-        if (lastPortalUse.containsKey(uuid) && now - lastPortalUse.get(uuid) < 4000) {
-            return;
-        }
-
         Location to = event.getTo();
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        // Interrupt vanilla as early as possible
-        player.setPortalCooldown(300);
+        Location originalPortal = event.getFrom().clone();
 
-        lastPortalUse.put(uuid, now);
+        plugin.getLogger().info("[Portal] Player: " + player.getName());
+        plugin.getLogger().info("[Portal] Entry detected at: " + formatLoc(to));
 
-        Location customDest = calculateCustomDestination(to);
-        if (customDest == null || !isWithinConfiguredBounds(customDest)) {
-            lastPortalUse.remove(uuid);
-            player.teleportAsync(event.getFrom().clone());
+        // Interrupt vanilla early
+        player.setPortalCooldown(200);
+
+        // Your delay idea to let Folia settle
+        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
+            processPortalTeleport(player, originalPortal, to);
+        }, 5L);
+    }
+
+    private void processPortalTeleport(Player player, Location originalPortal, Location entryLocation) {
+        Location customDest = calculateCustomDestination(entryLocation);
+        if (customDest == null) {
+            plugin.getLogger().warning("[Portal] Failed to calculate destination");
+            player.teleportAsync(originalPortal);
             return;
         }
 
-        // Debug log - check this to confirm 2:1 is working
-        plugin.getLogger().info("[NetherRatio] Custom 2:1 dest → X:" + customDest.getBlockX() + " Z:" + customDest.getBlockZ());
+        plugin.getLogger().info("[Portal] Calculated 2:1 destination: " + formatLoc(customDest));
 
-        int searchRadius = (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 64 : 16;
+        findSafeLocationAsync(customDest, safeDest -> {
+            plugin.getLogger().info("[Portal] Safe location result: " + formatLoc(safeDest));
 
-        Bukkit.getRegionScheduler().execute(plugin, customDest.getWorld(),
-                customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, () -> {
+            Location targetLoc = findNearestPortal(safeDest, 8);
+            Location spawnLoc;
 
-            Location existing = findNearestPortal(customDest, searchRadius);
-            if (existing != null) {
-                teleportWithRetry(player, existing.clone().add(0.5, 0.85, 0.5), event.getFrom().clone(), 4);
-                return;
+            if (targetLoc != null) {
+                spawnLoc = targetLoc.clone().add(0.5, 0.85, 0.5);
+                plugin.getLogger().info("[Portal] Found existing portal nearby");
+            } else {
+                if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
+                    createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
+                    spawnLoc = safeDest.clone().add(0.5, 1.2, 0.5);
+                    plugin.getLogger().info("[Portal] Created new portal at: " + formatLoc(spawnLoc));
+                } else {
+                    spawnLoc = originalPortal;
+                    plugin.getLogger().warning("[Portal] No safe spot found - falling back");
+                }
             }
 
-            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 60, safeLoc -> {
-                if (safeLoc != null) {
-                    createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                    teleportWithRetry(player, safeLoc.clone().add(0, 0.85, 0), event.getFrom().clone(), 4);
-                } else {
-                    int highY = customDest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : customDest.getBlockY() + 60;
-                    createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
-                    teleportWithRetry(player,
-                            new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.2, customDest.getZ() + 0.5),
-                            event.getFrom().clone(), 4);
-                }
-            });
+            plugin.getLogger().info("[Teleport] FINAL SPAWN: " + formatLoc(spawnLoc));
+            teleportWithRetry(player, spawnLoc, originalPortal, 5);
         });
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onPortalCreate(PortalCreateEvent event) {
-        if (event.getReason() != PortalCreateEvent.CreateReason.NETHER_PAIR) return;
-
-        Entity entity = event.getEntity();
-        if (!(entity instanceof Player player)) return;
-
-        if (lastPortalUse.containsKey(player.getUniqueId())) {
+        if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
             event.setCancelled(true);
-            lastPortalUse.remove(player.getUniqueId());
+            plugin.getLogger().info("[Portal] Cancelled vanilla NETHER_PAIR creation");
         }
     }
 
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
-                player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
+                plugin.getLogger().info("[Teleport] Success at attempt " + (6 - attemptsLeft));
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
-                        teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
+                    teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
             } else {
                 player.teleportAsync(fallback);
-            }
-        });
-    }
-
-    private boolean isWithinConfiguredBounds(Location loc) {
-        boolean enabled = plugin.getConfig().getBoolean("coordinate-bounds.enabled", false);
-        if (!enabled) return true;
-
-        int minX, maxX, minZ, maxZ;
-        if (loc.getWorld().getEnvironment() == World.Environment.NORMAL) {
-            minX = plugin.getConfig().getInt("coordinate-bounds.overworld.min-x", -19999);
-            maxX = plugin.getConfig().getInt("coordinate-bounds.overworld.max-x", 19999);
-            minZ = plugin.getConfig().getInt("coordinate-bounds.overworld.min-z", -19999);
-            maxZ = plugin.getConfig().getInt("coordinate-bounds.overworld.max-z", 19999);
-        } else {
-            minX = plugin.getConfig().getInt("coordinate-bounds.nether.min-x", -9999);
-            maxX = plugin.getConfig().getInt("coordinate-bounds.nether.max-x", 9999);
-            minZ = plugin.getConfig().getInt("coordinate-bounds.nether.min-z", -9999);
-            maxZ = plugin.getConfig().getInt("coordinate-bounds.nether.max-z", 9999);
-        }
-        return loc.getX() >= minX && loc.getX() <= maxX && loc.getZ() >= minZ && loc.getZ() <= maxZ;
-    }
-
-    private void attemptSafeLocation(World world, int x, int z, int maxAttempts, Consumer<Location> callback) {
-        attemptSafeLocation(world, x, z, maxAttempts, 0, callback);
-    }
-
-    private void attemptSafeLocation(World world, int x, int z, int maxAttempts, int attempt, Consumer<Location> callback) {
-        if (attempt >= maxAttempts) {
-            callback.accept(null);
-            return;
-        }
-        int y = 35 + (int)(Math.random() * 110);
-
-        Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
-            Block feet = world.getBlockAt(x, y, z);
-            Block head = world.getBlockAt(x, y + 1, z);
-            Block below = world.getBlockAt(x, y - 1, z);
-
-            if (feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid()) {
-                callback.accept(new Location(world, x + 0.5, y, z + 0.5));
-            } else {
-                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
-                        attemptSafeLocation(world, x, z, maxAttempts, attempt + 1, callback), 1L);
             }
         });
     }
@@ -200,7 +129,38 @@ public class PortalTravelListener implements Listener {
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         }
-        return new Location(toWorld, newX, from.getY(), newZ);
+        return new Location(toWorld, newX, from.getY(), newZ, from.getYaw(), from.getPitch());
+    }
+
+    private void findSafeLocationAsync(Location target, Consumer<Location> callback) {
+        World world = target.getWorld();
+        if (world == null) {
+            callback.accept(target);
+            return;
+        }
+        Bukkit.getRegionScheduler().execute(plugin, world, target.getBlockX() >> 4, target.getBlockZ() >> 4, () -> {
+            callback.accept(findSafeLocationSync(target));
+        });
+    }
+
+    private Location findSafeLocationSync(Location target) {
+        World world = target.getWorld();
+        int x = target.getBlockX();
+        int z = target.getBlockZ();
+
+        for (int y = Math.min(target.getBlockY() + 30, 150); y >= Math.max(target.getBlockY() - 30, 20); y--) {
+            if (isSafeSpot(world, x, y, z)) {
+                return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
+            }
+        }
+        return target;
+    }
+
+    private boolean isSafeSpot(World world, int x, int y, int z) {
+        Block feet = world.getBlockAt(x, y, z);
+        Block head = world.getBlockAt(x, y + 1, z);
+        Block below = world.getBlockAt(x, y - 1, z);
+        return feet.getType().isAir() && head.getType().isAir() && below.getType().isSolid();
     }
 
     private Location findNearestPortal(Location center, int radius) {
@@ -209,17 +169,12 @@ public class PortalTravelListener implements Listener {
 
         int cx = center.getBlockX();
         int cz = center.getBlockZ();
-        int cy = center.getBlockY();
-
         Location nearest = null;
         double bestDist = Double.MAX_VALUE;
 
-        int minY = Math.max(world.getMinHeight(), cy - 48);
-        int maxY = Math.min(world.getMaxHeight(), cy + 48);
-
         for (int x = cx - radius; x <= cx + radius; x++) {
             for (int z = cz - radius; z <= cz + radius; z++) {
-                for (int y = minY; y <= maxY; y++) {
+                for (int y = center.getBlockY() - 8; y <= center.getBlockY() + 16; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
                         double dist = center.distanceSquared(new Location(world, x + 0.5, y + 0.5, z + 0.5));
                         if (dist < bestDist) {
@@ -233,47 +188,35 @@ public class PortalTravelListener implements Listener {
         return nearest;
     }
 
-    private void createProperPortal(World world, int x, int y, int z) {
-        // Clear area
-        for (int dx = -3; dx <= 4; dx++) {
-            for (int dy = -2; dy <= 7; dy++) {
-                for (int dz = -3; dz <= 3; dz++) {
-                    world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
-                }
-            }
-        }
-
-        // Bottom + top obsidian
-        for (int dx = -1; dx <= 2; dx++) {
+    private void createBasicPortal(World world, int x, int y, int z) {
+        // Bottom obsidian
+        for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
-            world.getBlockAt(x + dx, y + 5, z).setType(Material.OBSIDIAN);
         }
-
         // Side pillars
-        for (int dy = 0; dy <= 5; dy++) {
+        for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
         }
-
+        // Top obsidian
+        for (int dx = 0; dx <= 1; dx++) {
+            world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN);
+        }
         // Portal blocks with correct axis
         for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 1; dy <= 4; dy++) {
+            for (int dy = 1; dy <= 3; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
                 BlockData data = Material.NETHER_PORTAL.createBlockData();
                 if (data instanceof Orientable orientable) {
-                    orientable.setAxis(Axis.X);
+                    orientable.setAxis(org.bukkit.Axis.X);
                 }
                 block.setBlockData(data);
             }
         }
     }
 
-    private void createEmergencyHighPortal(World world, int x, int y, int z) {
-        createProperPortal(world, x, y, z);
-        for (int dx = -1; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
-            }
-        }
+    private String formatLoc(Location loc) {
+        if (loc == null || loc.getWorld() == null) return "null";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
     }
 }
