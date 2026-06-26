@@ -11,7 +11,6 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
-import org.bukkit.event.world.PortalCreateEvent;
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
@@ -26,12 +25,12 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
     private final Map<UUID, Long> lastPortalUse = new HashMap<>();
-    private final Map<UUID, Long> justTeleportedByPlugin = new HashMap<>(); // Tag protection
+    private final Map<UUID, Long> justTeleportedByPlugin = new HashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Stable Base + RTP + Tag Protection + Bounds");
+        plugin.getLogger().info("[NetherRatio] Stable + Strong RTP + Reliable Lighting");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -39,12 +38,16 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // === TAG PROTECTION (what you asked for) ===
         if (justTeleportedByPlugin.containsKey(uuid)) {
-            if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
-                return; // Still in portal after our teleport → ignore
+            long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
+            if (timeSince < 6000) {
+                if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
+                    return;
+                } else {
+                    justTeleportedByPlugin.remove(uuid);
+                }
             } else {
-                justTeleportedByPlugin.remove(uuid); // Stepped out → clear tag
+                justTeleportedByPlugin.remove(uuid);
             }
         }
 
@@ -72,14 +75,13 @@ public class PortalTravelListener implements Listener {
 
             Location existing = findNearestPortal(dest, searchRadius);
             if (existing != null) {
-                Location spawn = existing.clone().add(0.5, 0.85, 0.5);
-                doTeleportWithTag(player, spawn);
+                doTeleportWithTag(player, existing.clone().add(0.5, 0.85, 0.5));
                 return;
             }
 
-            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 80, safeLoc -> {
+            attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 100, safeLoc -> {
                 if (safeLoc != null) {
-                    createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                    createReliablePortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     doTeleportWithTag(player, safeLoc.clone().add(0.5, 0.85, 0.5));
                 } else {
                     int highY = dest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : dest.getBlockY() + 60;
@@ -93,7 +95,7 @@ public class PortalTravelListener implements Listener {
     private void doTeleportWithTag(Player player, Location target) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis()); // Set tag
+                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
                 player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
@@ -133,7 +135,7 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        int y = 35 + (int)(Math.random() * 110);
+        int y = 35 + (int)(Math.random() * 120); // Wider search
 
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
             Block feet = world.getBlockAt(x, y, z);
@@ -147,6 +149,53 @@ public class PortalTravelListener implements Listener {
                     attemptSafeLocation(world, x, z, maxAttempts, attempt + 1, callback), 1L);
             }
         });
+    }
+
+    private void createReliablePortal(World world, int x, int y, int z) {
+        // Minimal clearing
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 0; dy <= 4; dy++) {
+                for (int dz = -1; dz <= 1; dz++) {
+                    world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
+                }
+            }
+        }
+
+        // Build frame
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 0; dy <= 4; dy++) {
+                Block block = world.getBlockAt(x + dx, y + dy, z);
+                if (dy == 0 || dy == 4) {
+                    block.setType(Material.OBSIDIAN);
+                } else {
+                    block.setType(Material.NETHER_PORTAL);
+                }
+            }
+        }
+
+        // Force lighting twice
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dy = 1; dy <= 3; dy++) {
+                world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
+            }
+        }
+
+        // Side pillars
+        for (int dy = 0; dy <= 4; dy++) {
+            world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
+            world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
+        }
+    }
+
+    private void createEmergencyHighPortal(World world, int x, int y, int z) {
+        createReliablePortal(world, x, y, z);
+
+        // Extra platforms
+        for (int dx = 0; dx <= 1; dx++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
+            }
+        }
     }
 
     private Location calculateCustomDestination(Location from) {
@@ -187,41 +236,5 @@ public class PortalTravelListener implements Listener {
             }
         }
         return null;
-    }
-
-    private void createProperPortal(World world, int x, int y, int z) {
-        for (int dx = -2; dx <= 3; dx++) {
-            for (int dy = -1; dy <= 6; dy++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
-                }
-            }
-        }
-
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 4; dy++) {
-                Block block = world.getBlockAt(x + dx, y + dy, z);
-                if (dy == 0 || dy == 4) {
-                    block.setType(Material.OBSIDIAN);
-                } else {
-                    block.setType(Material.NETHER_PORTAL);
-                }
-            }
-        }
-
-        for (int dy = 0; dy <= 4; dy++) {
-            world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
-            world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
-        }
-    }
-
-    private void createEmergencyHighPortal(World world, int x, int y, int z) {
-        createProperPortal(world, x, y, z);
-
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
-            }
-        }
     }
 }
