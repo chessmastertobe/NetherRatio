@@ -11,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.world.PortalCreateEvent;
 import org.doraji.netherratio.NetherRatio;
 import org.doraji.netherratio.ConfigManager;
 import org.doraji.netherratio.util.CoordinateMath;
@@ -25,12 +26,12 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
     private final Map<UUID, Long> lastPortalUse = new HashMap<>();
-    private final Map<UUID, Long> justTeleportedByPlugin = new HashMap<>();
+    private final Map<UUID, Long> justTeleportedByPlugin = new HashMap<>(); // Tag protection
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Stable + RTP + Retry Loop vs Folia");
+        plugin.getLogger().info("[NetherRatio] Stable Base + RTP + Tag Protection + Bounds");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -38,16 +39,12 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
+        // === TAG PROTECTION (what you asked for) ===
         if (justTeleportedByPlugin.containsKey(uuid)) {
-            long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
-            if (timeSince < 6000) {
-                if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
-                    return;
-                } else {
-                    justTeleportedByPlugin.remove(uuid);
-                }
+            if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
+                return; // Still in portal after our teleport → ignore
             } else {
-                justTeleportedByPlugin.remove(uuid);
+                justTeleportedByPlugin.remove(uuid); // Stepped out → clear tag
             }
         }
 
@@ -75,36 +72,31 @@ public class PortalTravelListener implements Listener {
 
             Location existing = findNearestPortal(dest, searchRadius);
             if (existing != null) {
-                teleportWithRetry(player, existing.clone().add(0.5, 0.85, 0.5), original, 5);
+                Location spawn = existing.clone().add(0.5, 0.85, 0.5);
+                doTeleportWithTag(player, spawn);
                 return;
             }
 
             attemptSafeLocation(dest.getWorld(), dest.getBlockX(), dest.getBlockZ(), 80, safeLoc -> {
                 if (safeLoc != null) {
                     createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                    teleportWithRetry(player, safeLoc.clone().add(0.5, 0.85, 0.5), original, 5);
+                    doTeleportWithTag(player, safeLoc.clone().add(0.5, 0.85, 0.5));
                 } else {
                     int highY = dest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : dest.getBlockY() + 60;
                     createEmergencyHighPortal(dest.getWorld(), dest.getBlockX(), highY, dest.getBlockZ());
-                    teleportWithRetry(player, new Location(dest.getWorld(), dest.getX() + 0.5, highY + 1.5, dest.getZ() + 0.5), original, 5);
+                    doTeleportWithTag(player, new Location(dest.getWorld(), dest.getX() + 0.5, highY + 1.5, dest.getZ() + 0.5));
                 }
             });
         });
     }
 
-    // Retry loop to fight Folia override
-    private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
+    private void doTeleportWithTag(Player player, Location target) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
+                justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis()); // Set tag
                 player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
-            } else if (attemptsLeft > 0) {
-                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
-                    teleportWithRetry(player, target, fallback, attemptsLeft - 1), 2L);
-            } else {
-                player.teleportAsync(fallback);
             }
         });
     }
