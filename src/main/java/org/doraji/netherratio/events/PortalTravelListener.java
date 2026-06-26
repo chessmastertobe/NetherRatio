@@ -26,14 +26,12 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
-    // Thread-safe protection (fixes the crazy loop)
     private final ConcurrentHashMap<UUID, Long> lastPortalUse = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long> justTeleportedByPlugin = new ConcurrentHashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v15 - Loop protection added");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -44,12 +42,12 @@ public class PortalTravelListener implements Listener {
 
         if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        // === LOOP PROTECTION ===
+        // Protection against loops / re-triggers
         if (justTeleportedByPlugin.containsKey(uuid)) {
             long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
             if (timeSince < 8000) {
                 if (player.getLocation().getBlock().getType() == Material.NETHER_PORTAL) {
-                    return; // Still inside our newly created portal → skip
+                    return;
                 } else {
                     justTeleportedByPlugin.remove(uuid);
                 }
@@ -62,54 +60,42 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        Location originalPortal = event.getFrom().clone();
-
-        plugin.getLogger().info("[Portal] Player: " + player.getName());
-        plugin.getLogger().info("[Portal] Entry detected at: " + formatLoc(to));
-
-        // Interrupt vanilla early
-        player.setPortalCooldown(200);
+        player.setPortalCooldown(300);
         lastPortalUse.put(uuid, System.currentTimeMillis());
 
-        // Your original delay idea
-        Bukkit.getGlobalRegionScheduler().runDelayed(plugin, task -> {
-            processPortalTeleport(player, originalPortal, to);
-        }, 5L);
-    }
+        Location originalPortal = event.getFrom().clone();
+        Location customDest = calculateCustomDestination(to);
 
-    private void processPortalTeleport(Player player, Location originalPortal, Location entryLocation) {
-        Location customDest = calculateCustomDestination(entryLocation);
         if (customDest == null) {
-            plugin.getLogger().warning("[Portal] Failed to calculate destination");
-            player.teleportAsync(originalPortal);
-            lastPortalUse.remove(player.getUniqueId());
+            lastPortalUse.remove(uuid);
             return;
         }
 
-        plugin.getLogger().info("[Portal] Calculated 2:1 destination: " + formatLoc(customDest));
+        plugin.getLogger().info("[NetherRatio] Taking control for 2:1 → X=" + customDest.getBlockX() + " Z=" + customDest.getBlockZ());
 
-        findSafeLocationAsync(customDest, safeDest -> {
-            plugin.getLogger().info("[Portal] Safe location result: " + formatLoc(safeDest));
+        int searchRadius = (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 64 : 16;
 
-            Location targetLoc = findNearestPortal(safeDest, 8);
-            Location spawnLoc;
+        Bukkit.getRegionScheduler().execute(plugin, customDest.getWorld(),
+                customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, () -> {
 
-            if (targetLoc != null) {
-                spawnLoc = targetLoc.clone().add(0.5, 0.85, 0.5);
-                plugin.getLogger().info("[Portal] Found existing portal nearby");
-            } else {
-                if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
-                    createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
-                    spawnLoc = safeDest.clone().add(0.5, 1.2, 0.5);
-                    plugin.getLogger().info("[Portal] Created new portal at: " + formatLoc(spawnLoc));
-                } else {
-                    spawnLoc = originalPortal;
-                    plugin.getLogger().warning("[Portal] No safe spot found - falling back");
-                }
+            Location existing = findNearestPortal(customDest, searchRadius);
+            if (existing != null) {
+                teleportWithRetry(player, existing.clone().add(0.5, 0.85, 0.5), originalPortal, 4);
+                return;
             }
 
-            plugin.getLogger().info("[Teleport] FINAL SPAWN: " + formatLoc(spawnLoc));
-            teleportWithRetry(player, spawnLoc, originalPortal, 5);
+            findSafeLocationAsync(customDest, safeLoc -> {
+                // safeLoc is now treated as a good place to BUILD the portal
+                createBasicPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+
+                // Teleport player directly into the middle of the portal we just built
+                Location portalCenter = new Location(safeLoc.getWorld(),
+                        safeLoc.getX() + 0.5,
+                        safeLoc.getY() + 1.5,
+                        safeLoc.getZ() + 0.5);
+
+                teleportWithRetry(player, portalCenter, originalPortal, 4);
+            });
         });
     }
 
@@ -117,18 +103,15 @@ public class PortalTravelListener implements Listener {
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR) {
             event.setCancelled(true);
-            plugin.getLogger().info("[Portal] Cancelled vanilla NETHER_PAIR creation");
         }
     }
 
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                // Set protection tag so we don't re-trigger on the new portal
                 justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
-                plugin.getLogger().info("[Teleport] Success");
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
@@ -180,10 +163,10 @@ public class PortalTravelListener implements Listener {
 
         for (int y = Math.min(target.getBlockY() + 30, 150); y >= Math.max(target.getBlockY() - 30, 20); y--) {
             if (isSafeSpot(world, x, y, z)) {
-                return new Location(world, x + 0.5, y, z + 0.5, target.getYaw(), target.getPitch());
+                return new Location(world, x + 0.5, y, z + 0.5);
             }
         }
-        return target;
+        return target; // fallback (will still try to build)
     }
 
     private boolean isSafeSpot(World world, int x, int y, int z) {
@@ -219,16 +202,16 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createBasicPortal(World world, int x, int y, int z) {
-        // Bottom
+        // Bottom obsidian
         for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
         }
-        // Sides
+        // Side pillars
         for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
         }
-        // Top
+        // Top obsidian
         for (int dx = 0; dx <= 1; dx++) {
             world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN);
         }
