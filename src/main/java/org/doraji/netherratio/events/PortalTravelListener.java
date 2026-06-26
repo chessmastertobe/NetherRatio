@@ -29,23 +29,22 @@ public class PortalTravelListener implements Listener {
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
-    // Thread-safe on Folia
     private final ConcurrentHashMap<UUID, Long> lastPortalUse = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long> justTeleportedByPlugin = new ConcurrentHashMap<>();
 
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Cleaned Folia-safe version (PlayerMoveEvent + PortalCreateEvent hijack)");
+        plugin.getLogger().info("[NetherRatio] Fixed version - Full custom logic in PlayerMoveEvent + PortalCreateEvent cancel");
     }
 
-    // ==================== PLAYER MOVE DETECTION ====================
+    // ==================== DETECT PORTAL ENTRY ====================
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        // Protection tag
+        // Protection against re-trigger after our teleport
         if (justTeleportedByPlugin.containsKey(uuid)) {
             long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
             if (timeSince < 6000) {
@@ -72,14 +71,38 @@ public class PortalTravelListener implements Listener {
         Location customDest = calculateCustomDestination(to);
         if (customDest == null || !isWithinConfiguredBounds(customDest)) {
             player.teleportAsync(event.getFrom().clone());
+            lastPortalUse.remove(uuid);
             return;
         }
 
-        // Tag the player so PortalCreateEvent knows to hijack
-        // (We still let vanilla try so PortalCreateEvent fires)
+        int searchRadius = (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 64 : 16;
+
+        // Do the real work on the target region thread
+        Bukkit.getRegionScheduler().execute(plugin, customDest.getWorld(),
+                customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, () -> {
+
+            Location existing = findNearestPortal(customDest, searchRadius);
+            if (existing != null) {
+                teleportWithRetry(player, existing.clone().add(0.5, 0.85, 0.5), event.getFrom().clone(), 4);
+                return;
+            }
+
+            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 60, safeLoc -> {
+                if (safeLoc != null) {
+                    createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
+                    teleportWithRetry(player, safeLoc.clone().add(0, 0.85, 0), event.getFrom().clone(), 4);
+                } else {
+                    int highY = customDest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : customDest.getBlockY() + 60;
+                    createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
+                    teleportWithRetry(player,
+                            new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.2, customDest.getZ() + 0.5),
+                            event.getFrom().clone(), 4);
+                }
+            });
+        });
     }
 
-    // ==================== HIJACK VANILLA CREATION ====================
+    // ==================== CANCEL VANILLA 8:1 CREATION ====================
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPortalCreate(PortalCreateEvent event) {
         if (event.getReason() != PortalCreateEvent.CreateReason.NETHER_PAIR) return;
@@ -88,44 +111,14 @@ public class PortalTravelListener implements Listener {
         if (!(entity instanceof Player player)) return;
 
         UUID uuid = player.getUniqueId();
-        if (!lastPortalUse.containsKey(uuid)) return; // Not our custom flow
+        if (!lastPortalUse.containsKey(uuid)) return;
 
-        Location from = player.getLocation();
-        Location customDest = calculateCustomDestination(from);
-
-        if (customDest == null || !isWithinConfiguredBounds(customDest)) {
-            return; // Let vanilla handle it
-        }
-
-        event.setCancelled(true); // Stop vanilla 8:1 creation
-
-        int searchRadius = (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) ? 64 : 16;
-
-        Bukkit.getRegionScheduler().execute(plugin, customDest.getWorld(),
-                customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, () -> {
-
-            Location existing = findNearestPortal(customDest, searchRadius);
-            if (existing != null) {
-                teleportWithRetry(player, existing.clone().add(0.5, 0.85, 0.5), from.clone(), 4);
-                return;
-            }
-
-            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 60, safeLoc -> {
-                if (safeLoc != null) {
-                    createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
-                    teleportWithRetry(player, safeLoc.clone().add(0, 0.85, 0), from.clone(), 4);
-                } else {
-                    int highY = customDest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : customDest.getBlockY() + 60;
-                    createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
-                    teleportWithRetry(player,
-                            new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.2, customDest.getZ() + 0.5),
-                            from.clone(), 4);
-                }
-            });
-        });
+        // Cancel vanilla creation at 8:1
+        event.setCancelled(true);
+        lastPortalUse.remove(uuid); // Clean up
     }
 
-    // ==================== RETRY TELEPORT ====================
+    // ==================== TELEPORT WITH RETRY ====================
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
@@ -142,7 +135,6 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== BOUNDS CHECK ====================
     private boolean isWithinConfiguredBounds(Location loc) {
         boolean enabled = plugin.getConfig().getBoolean("coordinate-bounds.enabled", false);
         if (!enabled) return true;
@@ -159,12 +151,9 @@ public class PortalTravelListener implements Listener {
             minZ = plugin.getConfig().getInt("coordinate-bounds.nether.min-z", -9999);
             maxZ = plugin.getConfig().getInt("coordinate-bounds.nether.max-z", 9999);
         }
-
-        return loc.getX() >= minX && loc.getX() <= maxX &&
-               loc.getZ() >= minZ && loc.getZ() <= maxZ;
+        return loc.getX() >= minX && loc.getX() <= maxX && loc.getZ() >= minZ && loc.getZ() <= maxZ;
     }
 
-    // ==================== SAFE LOCATION SEARCH ====================
     private void attemptSafeLocation(World world, int x, int z, int maxAttempts, Consumer<Location> callback) {
         attemptSafeLocation(world, x, z, maxAttempts, 0, callback);
     }
@@ -174,7 +163,6 @@ public class PortalTravelListener implements Listener {
             callback.accept(null);
             return;
         }
-
         int y = 35 + (int)(Math.random() * 110);
 
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
@@ -191,7 +179,6 @@ public class PortalTravelListener implements Listener {
         });
     }
 
-    // ==================== CUSTOM DESTINATION ====================
     private Location calculateCustomDestination(Location from) {
         World fromWorld = from.getWorld();
         if (fromWorld == null) return null;
@@ -216,29 +203,27 @@ public class PortalTravelListener implements Listener {
         return new Location(toWorld, newX, from.getY(), newZ);
     }
 
-    // ==================== FIND NEAREST PORTAL (Optimized) ====================
     private Location findNearestPortal(Location center, int radius) {
         World world = center.getWorld();
         if (world == null) return null;
 
-        int centerX = center.getBlockX();
-        int centerZ = center.getBlockZ();
-        int centerY = center.getBlockY();
+        int cx = center.getBlockX();
+        int cz = center.getBlockZ();
+        int cy = center.getBlockY();
 
         Location nearest = null;
-        double nearestDistSq = Double.MAX_VALUE;
+        double bestDist = Double.MAX_VALUE;
 
-        // Heavily limited Y range for performance on Folia
-        int minY = Math.max(world.getMinHeight(), centerY - 48);
-        int maxY = Math.min(world.getMaxHeight(), centerY + 48);
+        int minY = Math.max(world.getMinHeight(), cy - 48);
+        int maxY = Math.min(world.getMaxHeight(), cy + 48);
 
-        for (int x = centerX - radius; x <= centerX + radius; x++) {
-            for (int z = centerZ - radius; z <= centerZ + radius; z++) {
+        for (int x = cx - radius; x <= cx + radius; x++) {
+            for (int z = cz - radius; z <= cz + radius; z++) {
                 for (int y = minY; y <= maxY; y++) {
                     if (world.getBlockAt(x, y, z).getType() == Material.NETHER_PORTAL) {
-                        double distSq = center.distanceSquared(new Location(world, x + 0.5, y + 0.5, z + 0.5));
-                        if (distSq < nearestDistSq) {
-                            nearestDistSq = distSq;
+                        double dist = center.distanceSquared(new Location(world, x + 0.5, y + 0.5, z + 0.5));
+                        if (dist < bestDist) {
+                            bestDist = dist;
                             nearest = new Location(world, x, y, z);
                         }
                     }
@@ -248,9 +233,7 @@ public class PortalTravelListener implements Listener {
         return nearest;
     }
 
-    // ==================== CREATE PORTAL (Fixed) ====================
     private void createProperPortal(World world, int x, int y, int z) {
-        // Clear area
         for (int dx = -2; dx <= 3; dx++) {
             for (int dy = -1; dy <= 6; dy++) {
                 for (int dz = -2; dz <= 2; dz++) {
@@ -259,7 +242,6 @@ public class PortalTravelListener implements Listener {
             }
         }
 
-        // Create frame + portal with correct axis
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 Block block = world.getBlockAt(x + dx, y + dy, z);
@@ -275,7 +257,6 @@ public class PortalTravelListener implements Listener {
             }
         }
 
-        // Side obsidian pillars
         for (int dy = 0; dy <= 4; dy++) {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
