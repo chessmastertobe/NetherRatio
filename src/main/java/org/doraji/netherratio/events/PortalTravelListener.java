@@ -230,26 +230,26 @@ public void onPortalCreate(PortalCreateEvent e) {
     }
 
 private void createProperPortal(World world, int x, int y, int z) {
-    // Clear ONLY the portal area — DO NOT clear the ground below
+    // Clear only the portal area — keep the ground below
     for (int dx = -2; dx <= 3; dx++) {
-        for (int dy = 0; dy <= 5; dy++) {          // changed from -1 → 0
+        for (int dy = 0; dy <= 5; dy++) {   // start at 0 to protect ground
             for (int dz = -2; dz <= 2; dz++) {
                 world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
             }
         }
     }
 
-    // Solid wide platform underneath (this stops floating forever)
+    // Solid platform underneath (fixes floating forever)
     for (int dx = -2; dx <= 3; dx++) {
         for (int dz = -1; dz <= 1; dz++) {
             world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
         }
     }
 
-    // Full connected obsidian frame
+    // Full solid frame
     for (int dx = -1; dx <= 2; dx++) {
-        world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);      // bottom
-        world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN); // top
+        world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
+        world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN);
     }
     for (int dy = 0; dy <= 4; dy++) {
         world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
@@ -263,19 +263,15 @@ private void createProperPortal(World world, int x, int y, int z) {
         }
     }
 
-    // Strong auto-lighting (two fires + delay so Folia registers it)
+    // Force lighting
     world.getBlockAt(x, y + 1, z).setType(Material.FIRE);
     world.getBlockAt(x + 1, y + 1, z).setType(Material.FIRE);
 
-    Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> {
-        // Clean fires
-        if (world.getBlockAt(x, y + 1, z).getType() == Material.FIRE) {
-            world.getBlockAt(x, y + 1, z).setType(Material.AIR);
-        }
-        if (world.getBlockAt(x + 1, y + 1, z).getType() == Material.FIRE) {
-            world.getBlockAt(x + 1, y + 1, z).setType(Material.AIR);
-        }
-        // Refresh portal blocks (extra safety)
+    // Safe cleanup on the correct region thread (this fixes the console error)
+    Bukkit.getRegionScheduler().runDelayed(plugin, world, x >> 4, z >> 4, t -> {
+        world.getBlockAt(x, y + 1, z).setType(Material.AIR);
+        world.getBlockAt(x + 1, y + 1, z).setType(Material.AIR);
+        // Refresh portal blocks
         world.getBlockAt(x, y + 1, z).setType(Material.NETHER_PORTAL);
         world.getBlockAt(x + 1, y + 1, z).setType(Material.NETHER_PORTAL);
     }, 5L);
