@@ -229,29 +229,46 @@ public void onPortalCreate(PortalCreateEvent e) {
         return null;
     }
 
-    private void createProperPortal(World world, int x, int y, int z) {
-        for (int dx = -2; dx <= 3; dx++) {
-            for (int dy = -1; dy <= 6; dy++) {
-                for (int dz = -2; dz <= 2; dz++) {
-                    world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
-                }
+private void createProperPortal(World world, int x, int y, int z) {
+    // Clear a safe area around the portal (smaller than before to avoid destroying too much)
+    for (int dx = -2; dx <= 3; dx++) {
+        for (int dy = -1; dy <= 5; dy++) {
+            for (int dz = -2; dz <= 2; dz++) {
+                world.getBlockAt(x + dx, y + dy, z + dz).setType(Material.AIR);
             }
-        }
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dy = 0; dy <= 4; dy++) {
-                Block block = world.getBlockAt(x + dx, y + dy, z);
-                if (dy == 0 || dy == 4) {
-                    block.setType(Material.OBSIDIAN);
-                } else {
-                    block.setType(Material.NETHER_PORTAL);
-                }
-            }
-        }
-        for (int dy = 0; dy <= 4; dy++) {
-            world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
-            world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
         }
     }
+
+    // Full solid obsidian frame (4 high inside, with corners connected)
+    // Bottom layer (including corners)
+    for (int dx = -1; dx <= 2; dx++) {
+        world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);      // bottom
+    }
+    // Top layer
+    for (int dx = -1; dx <= 2; dx++) {
+        world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN); // top
+    }
+    // Sides (full height)
+    for (int dy = 0; dy <= 4; dy++) {
+        world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
+        world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
+    }
+    // Middle columns - portal blocks
+    for (int dx = 0; dx <= 1; dx++) {
+        for (int dy = 1; dy <= 3; dy++) {   // inner 3 high
+            world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
+        }
+    }
+
+    // Optional: Force activation by placing temporary fire (usually lights it instantly)
+    world.getBlockAt(x, y + 1, z).setType(Material.FIRE);
+    // Clean up the fire next tick if you want (optional)
+    Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> {
+        if (world.getBlockAt(x, y + 1, z).getType() == Material.FIRE) {
+            world.getBlockAt(x, y + 1, z).setType(Material.AIR);
+        }
+    }, 5L);
+}
 
     private void createEmergencyHighPortal(World world, int x, int y, int z) {
         createProperPortal(world, x, y, z);
