@@ -40,18 +40,13 @@ public class PortalTravelListener implements Listener {
         Player player = event.getPlayer();
         UUID uuid = player.getUniqueId();
 
-        if (justTeleportedByPlugin.containsKey(uuid)) {
-            long timeSince = System.currentTimeMillis() - justTeleportedByPlugin.get(uuid);
-            if (timeSince < 8000) return;
-            justTeleportedByPlugin.remove(uuid);
-        }
+        Location to = event.getTo();
+        if (to == null || to.getBlock().getType() != Material.NETHER_PORTAL) return;
 
-        if (event.getTo() == null || event.getTo().getBlock().getType() != Material.NETHER_PORTAL) return;
-
+        // Mark immediately to help win the race
         justTeleportedByPlugin.put(uuid, System.currentTimeMillis());
 
-        plugin.getLogger().info("[RACE] === PLAYER ENTERED PORTAL ===");
-        plugin.getLogger().info("[RACE] Player: " + player.getName());
+        plugin.getLogger().info("[RACE] DETECTED portal entry: " + player.getName());
 
         // === HARDCODED TEST DESTINATION ===
         World targetWorld = Bukkit.getWorld("world");
@@ -62,14 +57,13 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
-        plugin.getLogger().info("[RACE] Teleporting player to hardcoded location...");
-
+        // Attempt to win the race by teleporting as fast as possible
         player.teleportAsync(hardcodedDest).thenAccept(success -> {
             if (success) {
-                plugin.getLogger().info("[RACE] SUCCESS - Player teleported using our code");
+                plugin.getLogger().info("[RACE] SUCCESS - Teleported using our code");
                 player.playSound(hardcodedDest, Sound.BLOCK_PORTAL_TRAVEL, 0.8f, 1.0f);
             } else {
-                plugin.getLogger().warning("[RACE] Teleport FAILED");
+                plugin.getLogger().warning("[RACE] Teleport failed");
             }
         });
     }
