@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 public class PortalTravelListener implements Listener {
+
     private final NetherRatio plugin;
     private final ConfigManager cm;
 
@@ -93,7 +94,8 @@ public class PortalTravelListener implements Listener {
                         teleportWithRetry(player, safeLoc.clone().add(0.5, 1.3, 0.5), originalPortal, 6);
                     }, 6L);
                 } else {
-                    int highY = customDest.getWorld().getEnvironment() == World.Environment.NETHER ? 120 : customDest.getBlockY() + 60;
+                    boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
+                    int highY = (customDest.getWorld().getEnvironment() == World.Environment.NETHER && !allowNetherRoof) ? 90 : customDest.getBlockY() + 60;
                     createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, customDest.getWorld(), customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, t -> {
                         teleportWithRetry(player, new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.6, customDest.getZ() + 0.5), originalPortal, 6);
@@ -185,7 +187,15 @@ public class PortalTravelListener implements Listener {
             newX = CoordinateMath.toOverworld(from.getX(), scale, cm.getOffsetXForNetherWorld(fromWorld.getName()));
             newZ = CoordinateMath.toOverworld(from.getZ(), scale, cm.getOffsetZForNetherWorld(fromWorld.getName()));
         }
-        return new Location(toWorld, newX, from.getY(), newZ);
+
+        // Respect your config for Nether roof portals
+        double destY = from.getY();
+        boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
+        if (!allowNetherRoof && toWorld.getEnvironment() == World.Environment.NETHER) {
+            destY = Math.max(35, Math.min(115, from.getY())); // safe playable range (no roof)
+        }
+
+        return new Location(toWorld, newX, destY, newZ);
     }
 
     private Location findNearestPortal(Location center, int radius) {
