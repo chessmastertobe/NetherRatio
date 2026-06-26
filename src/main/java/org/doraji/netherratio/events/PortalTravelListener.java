@@ -38,9 +38,10 @@ public class PortalTravelListener implements Listener {
     // ==================== PORTAL CREATION CANCEL (this was missing) ====================
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPortalCreate(PortalCreateEvent e) {
-        if (e.getReason() != PortalCreateEvent.CreateReason.NETHER_PORTAL) return;
-        e.setCancelled(true); // Stops ALL vanilla 8:1 portal creation
-        plugin.getLogger().fine("[NetherRatio] Cancelled vanilla 8:1 portal at " + e.getBlocks().get(0).getLocation());
+        e.setCancelled(true); // Kills ALL vanilla 8:1 creation attempts
+        if (!e.getBlocks().isEmpty()) {
+            plugin.getLogger().fine("[NetherRatio] Cancelled vanilla portal creation at " + e.getBlocks().get(0).getLocation());
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -110,12 +111,12 @@ public class PortalTravelListener implements Listener {
     private void teleportWithRetry(Player player, Location target, Location fallback, int attemptsLeft) {
         player.teleportAsync(target).thenAccept(success -> {
             if (success) {
-                player.getScheduler().execute(plugin, t -> {
+                Bukkit.getGlobalRegionScheduler().execute(plugin, () -> {
                     justTeleportedByPlugin.put(player.getUniqueId(), System.currentTimeMillis());
                     player.playSound(target, Sound.BLOCK_PORTAL_TRAVEL, 0.7f, 1.0f);
                     player.setNoDamageTicks(200);
                     player.setFallDistance(0);
-                }, null);
+                });
             } else if (attemptsLeft > 0) {
                 Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
