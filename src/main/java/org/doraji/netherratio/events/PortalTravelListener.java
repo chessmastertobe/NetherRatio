@@ -73,7 +73,7 @@ public class PortalTravelListener implements Listener {
 
         Location customDest = calculateCustomDestination(to);
 
-        // HARD SAFETY NET - prevent dangerous high Y teleports even if clamp misses
+        // HARD SAFETY NET - block any dangerous high Y teleport
         boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
         if (!allowNetherRoof && customDest.getWorld().getEnvironment() == World.Environment.NETHER && customDest.getY() > 118) {
             plugin.getLogger().warning("[NetherRatio] Blocked dangerous Nether roof teleport for " + player.getName() + " at Y=" + customDest.getY());
@@ -96,14 +96,13 @@ public class PortalTravelListener implements Listener {
                 return;
             }
 
-            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 120, safeLoc -> {  // increased attempts
+            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 120, safeLoc -> { // increased attempts
                 if (safeLoc != null) {
                     createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, safeLoc.getWorld(), safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, t -> {
                         teleportWithRetry(player, safeLoc.clone().add(0.5, 1.3, 0.5), originalPortal, 6);
                     }, 8L);
                 } else {
-                    boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
                     int highY = (customDest.getWorld().getEnvironment() == World.Environment.NETHER && !allowNetherRoof) ? 90 : customDest.getBlockY() + 60;
                     createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, customDest.getWorld(), customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, t -> {
@@ -161,8 +160,8 @@ public class PortalTravelListener implements Listener {
         }
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
             int startY = world.getEnvironment() == World.Environment.NETHER ? 65 : 75;
-            for (int dy = 0; dy < 100; dy += 2) { // wider + longer search
-                int y = Math.min(startY + dy + (attempt % 15) * 2, 115); // never go above safe height
+            for (int dy = 0; dy < 100; dy += 2) {
+                int y = Math.min(startY + dy + (attempt % 15) * 2, 115);
                 Block below = world.getBlockAt(x, y - 1, z);
                 Block feet = world.getBlockAt(x, y, z);
                 Block head = world.getBlockAt(x, y + 1, z);
