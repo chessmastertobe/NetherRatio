@@ -235,4 +235,18 @@ public class PortalTravelListener implements Listener {
         // Portal blocks with correct axis
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 1; dy <= 3; dy++) {
-                Block block =
+                Block block = world.getBlockAt(x + dx, y + dy, z);
+                BlockData data = Material.NETHER_PORTAL.createBlockData();
+                if (data instanceof Orientable orientable) {
+                    orientable.setAxis(org.bukkit.Axis.X);
+                }
+                block.setBlockData(data);
+            }
+        }
+    }
+
+    private String formatLoc(Location loc) {
+        if (loc == null || loc.getWorld() == null) return "null";
+        return loc.getWorld().getName() + " (" + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ() + ")";
+    }
+}
