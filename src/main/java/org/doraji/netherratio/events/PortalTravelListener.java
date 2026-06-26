@@ -230,7 +230,7 @@ public void onPortalCreate(PortalCreateEvent e) {
     }
 
 private void createProperPortal(World world, int x, int y, int z) {
-    // Clear a safe area around the portal (smaller than before to avoid destroying too much)
+    // Clear a safe area
     for (int dx = -2; dx <= 3; dx++) {
         for (int dy = -1; dy <= 5; dy++) {
             for (int dz = -2; dz <= 2; dz++) {
@@ -239,43 +239,42 @@ private void createProperPortal(World world, int x, int y, int z) {
         }
     }
 
-    // Full solid obsidian frame (4 high inside, with corners connected)
-    // Bottom layer (including corners)
+    // Full solid obsidian frame (fully connected bottom + corners)
     for (int dx = -1; dx <= 2; dx++) {
-        world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);      // bottom
+        world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);      // full bottom
+        world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN); // full top
     }
-    // Top layer
-    for (int dx = -1; dx <= 2; dx++) {
-        world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN); // top
-    }
-    // Sides (full height)
     for (int dy = 0; dy <= 4; dy++) {
         world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
         world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
     }
-    // Middle columns - portal blocks
+
+    // Portal blocks in the middle
     for (int dx = 0; dx <= 1; dx++) {
-        for (int dy = 1; dy <= 3; dy++) {   // inner 3 high
+        for (int dy = 1; dy <= 3; dy++) {
             world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
         }
     }
 
-    // Optional: Force activation by placing temporary fire (usually lights it instantly)
+    // Force lighting (temporary fire)
     world.getBlockAt(x, y + 1, z).setType(Material.FIRE);
-    // Clean up the fire next tick if you want (optional)
+
+    // Small delay so the game fully recognizes the portal
     Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> {
         if (world.getBlockAt(x, y + 1, z).getType() == Material.FIRE) {
             world.getBlockAt(x, y + 1, z).setType(Material.AIR);
         }
-    }, 5L);
+    }, 4L);
 }
 
-    private void createEmergencyHighPortal(World world, int x, int y, int z) {
-        createProperPortal(world, x, y, z);
-        for (int dx = 0; dx <= 1; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
-                world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
-            }
+private void createEmergencyHighPortal(World world, int x, int y, int z) {
+    createProperPortal(world, x, y, z);  // reuse the improved method
+
+    // Extra solid floor for safety at high Y
+    for (int dx = -1; dx <= 2; dx++) {
+        for (int dz = -1; dz <= 1; dz++) {
+            world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
         }
     }
+}
 }
