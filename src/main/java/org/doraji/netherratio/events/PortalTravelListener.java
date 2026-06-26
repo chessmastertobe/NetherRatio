@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.WorldBorder;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -25,7 +26,7 @@ public class PortalTravelListener implements Listener {
     public PortalTravelListener(NetherRatio plugin) {
         this.plugin = plugin;
         this.cm = plugin.getConfigManager();
-        plugin.getLogger().info("[NetherRatio] Debug v14 - Smart Portal Spawn + Max Logging");
+        plugin.getLogger().info("[NetherRatio] Debug v14 - Per-Destination Bounds");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -46,6 +47,35 @@ public class PortalTravelListener implements Listener {
             return;
         }
 
+        // === NEW: Load destination-specific bounds ===
+        boolean boundsEnabled = plugin.getConfig().getBoolean("coordinate-bounds.enabled", false);
+
+        final int minX, maxX, minZ, maxZ;
+
+        if (customDest.getWorld().getEnvironment() == World.Environment.NORMAL) {
+            // Going to Overworld - use wider bounds
+            minX = plugin.getConfig().getInt("coordinate-bounds.overworld.min-x", -19999);
+            maxX = plugin.getConfig().getInt("coordinate-bounds.overworld.max-x", 19999);
+            minZ = plugin.getConfig().getInt("coordinate-bounds.overworld.min-z", -19999);
+            maxZ = plugin.getConfig().getInt("coordinate-bounds.overworld.max-z", 19999);
+        } else {
+            // Going to Nether - use tighter bounds
+            minX = plugin.getConfig().getInt("coordinate-bounds.nether.min-x", -9999);
+            maxX = plugin.getConfig().getInt("coordinate-bounds.nether.max-x", 9999);
+            minZ = plugin.getConfig().getInt("coordinate-bounds.nether.min-z", -9999);
+            maxZ = plugin.getConfig().getInt("coordinate-bounds.nether.max-z", 9999);
+        }
+
+        // Bounds check on calculated destination
+        if (boundsEnabled) {
+            if (customDest.getX() < minX || customDest.getX() > maxX ||
+                customDest.getZ() < minZ || customDest.getZ() > maxZ) {
+                plugin.getLogger().warning("[Portal] Destination outside bounds - rejecting");
+                player.teleportAsync(originalPortal);
+                return;
+            }
+        }
+
         findSafeLocationAsync(customDest, safeDest -> {
             plugin.getLogger().info("[Portal] Calculated safe dest: " + formatLoc(safeDest));
 
@@ -54,13 +84,12 @@ public class PortalTravelListener implements Listener {
             Location spawnLoc;
             if (target != null) {
                 plugin.getLogger().info("[Portal] Found existing portal at: " + formatLoc(target));
-                // Smart spawn: middle of the portal
                 spawnLoc = target.clone().add(0.5, 1.5, 0.5);
             } else {
                 if (isSafeSpot(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ())) {
                     createBasicPortal(safeDest.getWorld(), safeDest.getBlockX(), safeDest.getBlockY(), safeDest.getBlockZ());
                     spawnLoc = safeDest.clone().add(0.5, 1.5, 0.5);
-                    plugin.getLogger().info("[Portal] Created new portal - spawning at: " + formatLoc(spawnLoc));
+                    plugin.getLogger().info("[Portal] Created new portal");
                 } else {
                     spawnLoc = originalPortal;
                     plugin.getLogger().warning("[Portal] No safe spot - falling back");
@@ -84,13 +113,13 @@ public class PortalTravelListener implements Listener {
 
         player.teleportAsync(target).thenAccept(success -> {
             Location current = player.getLocation();
-            plugin.getLogger().info("[Teleport] Success=" + success + " | Player now at " + formatLoc(current) + " Y=" + current.getY());
+            plugin.getLogger().info("[Teleport] Success=" + success + " | Player now at " + formatLoc(current));
 
             if (success) {
                 player.setNoDamageTicks(200);
                 player.setFallDistance(0);
             } else if (attemptsLeft > 0) {
-                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t -> 
+                Bukkit.getGlobalRegionScheduler().runDelayed(plugin, t ->
                     teleportWithRetry(player, target, fallback, attemptsLeft - 1), 3L);
             } else {
                 player.teleportAsync(fallback);
