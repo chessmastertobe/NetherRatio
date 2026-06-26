@@ -106,9 +106,9 @@ public class PortalTravelListener implements Listener {
                     }, 8L);
                 } else {
                     // ULTIMATE FALLBACK - never send to bad location
-                    plugin.getLogger().warning("[NetherRatio] Safe location failed - sending back safely");
-                    player.teleportAsync(originalPortal);
-                    player.sendMessage("§cSafe portal destination not found. Returned to start.");
+                    //plugin.getLogger().warning("[NetherRatio] Safe location failed - sending back safely");
+                    //player.teleportAsync(originalPortal);
+                    //player.sendMessage("§cSafe portal destination not found. Returned to start.");
                 }
             });
         });
