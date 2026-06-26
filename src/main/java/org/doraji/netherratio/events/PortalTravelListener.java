@@ -35,14 +35,20 @@ public class PortalTravelListener implements Listener {
         plugin.getLogger().info("[NetherRatio] Stable + Retry Loop vs Folia + Per-Destination Bounds + Vanilla Cancel");
     }
 
-    // ==================== PORTAL CREATION CANCEL (this was missing) ====================
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPortalCreate(PortalCreateEvent e) {
-        e.setCancelled(true); // Kills ALL vanilla 8:1 creation attempts
+@EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+public void onPortalCreate(PortalCreateEvent e) {
+    // Only cancel the automatic "exit portal" creation that vanilla does during travel
+    // (the one that would use the old 8:1 ratio)
+    // Keep FIRE reason so players can still ignite normal portals with flint & steel
+    if (e.getReason() == PortalCreateEvent.CreateReason.NETHER_PAIR ||
+        e.getReason().toString().contains("NETHER")) {   // safe fallback for any version
+        e.setCancelled(true);
         if (!e.getBlocks().isEmpty()) {
-            plugin.getLogger().fine("[NetherRatio] Cancelled vanilla portal creation at " + e.getBlocks().get(0).getLocation());
+            plugin.getLogger().fine("[NetherRatio] Cancelled vanilla travel portal creation at " + e.getBlocks().get(0).getLocation());
         }
     }
+    // FIRE reason (player lighting a new portal) is allowed through
+}
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerMove(PlayerMoveEvent event) {
