@@ -75,8 +75,9 @@ public class PortalTravelListener implements Listener {
 
         // HARD SAFETY NET - block any dangerous high Y teleport
         boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
+        plugin.getLogger().info("[NetherRatio] Debug: Player=" + player.getName() + " destY=" + customDest.getY() + " allowRoof=" + allowNetherRoof);
         if (!allowNetherRoof && customDest.getWorld().getEnvironment() == World.Environment.NETHER && customDest.getY() > 118) {
-            plugin.getLogger().warning("[NetherRatio] Blocked dangerous Nether roof teleport for " + player.getName() + " at Y=" + customDest.getY());
+            plugin.getLogger().warning("[NetherRatio] BLOCKED dangerous Nether roof teleport for " + player.getName());
             player.teleportAsync(originalPortal);
             player.sendMessage("§cNether roof portals are disabled.");
             return;
@@ -96,7 +97,7 @@ public class PortalTravelListener implements Listener {
                 return;
             }
 
-            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 120, safeLoc -> { // increased attempts
+            attemptSafeLocation(customDest.getWorld(), customDest.getBlockX(), customDest.getBlockZ(), 120, safeLoc -> {
                 if (safeLoc != null) {
                     createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, safeLoc.getWorld(), safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, t -> {
@@ -233,13 +234,11 @@ public class PortalTravelListener implements Listener {
     }
 
     private void createProperPortal(World world, int x, int y, int z) {
-        // Solid platform (no floating)
         for (int dx = -2; dx <= 3; dx++) {
             for (int dz = -1; dz <= 1; dz++) {
                 world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
             }
         }
-        // Clear inside the frame
         for (int dx = -1; dx <= 2; dx++) {
             for (int dy = 0; dy <= 4; dy++) {
                 for (int dz = -1; dz <= 1; dz++) {
@@ -247,7 +246,6 @@ public class PortalTravelListener implements Listener {
                 }
             }
         }
-        // Full obsidian frame
         for (int dx = -1; dx <= 2; dx++) {
             world.getBlockAt(x + dx, y, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + dx, y + 4, z).setType(Material.OBSIDIAN);
@@ -256,20 +254,18 @@ public class PortalTravelListener implements Listener {
             world.getBlockAt(x - 1, y + dy, z).setType(Material.OBSIDIAN);
             world.getBlockAt(x + 2, y + dy, z).setType(Material.OBSIDIAN);
         }
-        // Portal blocks
         for (int dx = 0; dx <= 1; dx++) {
             for (int dy = 1; dy <= 3; dy++) {
                 world.getBlockAt(x + dx, y + dy, z).setType(Material.NETHER_PORTAL);
             }
         }
-        // Light it
         world.getBlockAt(x, y + 1, z).setType(Material.FIRE);
         world.getBlockAt(x + 1, y + 1, z).setType(Material.FIRE);
     }
 
     private void createEmergencyHighPortal(World world, int x, int y, int z) {
         createProperPortal(world, x, y, z);
-        for (int dx = -3; dx <= 4; dx++) { // wider platform
+        for (int dx = -3; dx <= 4; dx++) {
             for (int dz = -2; dz <= 2; dz++) {
                 world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
             }
