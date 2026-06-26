@@ -43,7 +43,6 @@ public class PortalTravelListener implements Listener {
                 plugin.getLogger().fine("[NetherRatio] Cancelled vanilla travel portal creation");
             }
         }
-        // FIRE reason (player lighting a portal) is allowed
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -92,14 +91,14 @@ public class PortalTravelListener implements Listener {
                     createProperPortal(safeLoc.getWorld(), safeLoc.getBlockX(), safeLoc.getBlockY(), safeLoc.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, safeLoc.getWorld(), safeLoc.getBlockX() >> 4, safeLoc.getBlockZ() >> 4, t -> {
                         teleportWithRetry(player, safeLoc.clone().add(0.5, 1.3, 0.5), originalPortal, 6);
-                    }, 6L);
+                    }, 8L); // extra delay for stability
                 } else {
                     boolean allowNetherRoof = plugin.getConfig().getBoolean("nether-roof-portals", false);
                     int highY = (customDest.getWorld().getEnvironment() == World.Environment.NETHER && !allowNetherRoof) ? 90 : customDest.getBlockY() + 60;
                     createEmergencyHighPortal(customDest.getWorld(), customDest.getBlockX(), highY, customDest.getBlockZ());
                     Bukkit.getRegionScheduler().runDelayed(plugin, customDest.getWorld(), customDest.getBlockX() >> 4, customDest.getBlockZ() >> 4, t -> {
                         teleportWithRetry(player, new Location(customDest.getWorld(), customDest.getX() + 0.5, highY + 1.6, customDest.getZ() + 0.5), originalPortal, 6);
-                    }, 6L);
+                    }, 8L); // extra delay for stability
                 }
             });
         });
@@ -152,12 +151,12 @@ public class PortalTravelListener implements Listener {
         }
         Bukkit.getRegionScheduler().execute(plugin, world, x >> 4, z >> 4, () -> {
             int startY = world.getEnvironment() == World.Environment.NETHER ? 65 : 75;
-            for (int dy = 0; dy < 55; dy += 3) {
-                int y = startY + dy + (attempt % 8) * 2;
+            for (int dy = 0; dy < 80; dy += 2) { // wider search
+                int y = startY + dy + (attempt % 12) * 2;
                 Block below = world.getBlockAt(x, y - 1, z);
                 Block feet = world.getBlockAt(x, y, z);
                 Block head = world.getBlockAt(x, y + 1, z);
-                if (below.getType().isSolid() && !below.getType().name().contains("LAVA") &&
+                if (below.getType().isSolid() && !below.getType().name().contains("LAVA") && !below.getType().name().contains("WATER") &&
                     feet.getType().isAir() && head.getType().isAir()) {
                     callback.accept(new Location(world, x + 0.5, y, z + 0.5));
                     return;
@@ -261,7 +260,7 @@ public class PortalTravelListener implements Listener {
 
     private void createEmergencyHighPortal(World world, int x, int y, int z) {
         createProperPortal(world, x, y, z);
-        for (int dx = -2; dx <= 3; dx++) {
+        for (int dx = -3; dx <= 4; dx++) { // wider platform
             for (int dz = -2; dz <= 2; dz++) {
                 world.getBlockAt(x + dx, y - 1, z + dz).setType(Material.OBSIDIAN);
             }
